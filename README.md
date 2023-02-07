@@ -2,6 +2,10 @@
 
 Use wrapper functions to cache function output in golang.
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/rohfle/cachefunk)](https://goreportcard.com/report/github.com/rohfle/cachefunk)
+[![Test](https://github.com/rohfle/cachefunk/actions/workflows/test.yml/badge.svg)](https://github.com/rohfle/cachefunk/actions/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/rohfle/cachefunk.svg)](https://pkg.go.dev/github.com/rohfle/cachefunk)
+
 ## Features
 
 - Currently supported cache adapters:
@@ -16,7 +20,7 @@ Use wrapper functions to cache function output in golang.
 
 ### Dependencies
 
-* go version that supports generics (assuming v1.18+ - tested on v1.20)
+* go version that supports generics (tested on v1.19)
 
 ### Installing
 
