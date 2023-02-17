@@ -1,6 +1,7 @@
 package cachefunk_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -15,11 +16,11 @@ func runTestCachePoisoning(t *testing.T, cache cachefunk.Cache) {
 		Bad func()
 	}
 
-	badFunction := func(ignoreCache bool, params *BadParams) (func(), error) {
+	badFunction := func(ctx *context.Context, ignoreCache bool, params *BadParams) (func(), error) {
 		return func() {}, nil
 	}
 
-	goodFunction := func(ignoreCache bool, params *BadParams) (string, error) {
+	goodFunction := func(ctx *context.Context, ignoreCache bool, params *BadParams) (string, error) {
 		return "", nil
 	}
 
@@ -33,17 +34,19 @@ func runTestCachePoisoning(t *testing.T, cache cachefunk.Cache) {
 		TTL: 1,
 	})
 
-	_, err := BadFunction(false, &BadParams{Bad: func() {}})
+	ctx := context.TODO()
+
+	_, err := BadFunction(&ctx, false, &BadParams{Bad: func() {}})
 	if err == nil {
 		t.Fatal("expected error for unserializable params")
 	}
 
-	_, err = GoodFunction(false, &BadParams{Bad: func() {}})
+	_, err = GoodFunction(&ctx, false, &BadParams{Bad: func() {}})
 	if err == nil {
 		t.Fatal("expected error for unserializable params")
 	}
 
-	_, err = BadFunction(false, nil)
+	_, err = BadFunction(&ctx, false, nil)
 	if err == nil {
 		t.Fatal("expected error for function that returns unserializable result")
 	}
@@ -52,7 +55,7 @@ func runTestCachePoisoning(t *testing.T, cache cachefunk.Cache) {
 
 func runTestCacheFuncTTL(t *testing.T, cache cachefunk.Cache, expireAllEntries func(bool)) {
 
-	noop := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+	noop := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "", nil
 	}
 
@@ -80,19 +83,21 @@ func runTestCacheFuncTTL(t *testing.T, cache cachefunk.Cache, expireAllEntries f
 		TTLJitter: 1,
 	})
 
-	NoCache(false, nil)
+	ctx := context.TODO()
+
+	NoCache(&ctx, false, nil)
 	if cache.EntryCount() != 0 {
 		t.Fatal("expected 0 cache entries after NoCache() but got", cache.EntryCount())
 	}
 
 	// Test TTL=-1 (cache forever)
-	CacheForever(false, nil)
+	CacheForever(&ctx, false, nil)
 	if cache.EntryCount() != 1 {
 		t.Fatal("expected 1 cache entries after CacheForever() but got", cache.EntryCount())
 	}
 
 	// Test TTL=1 no jitter
-	CacheTTL(false, nil)
+	CacheTTL(&ctx, false, nil)
 	if cache.EntryCount() != 2 {
 		t.Fatal("expected 2 cache entries after CacheTTL() but got", cache.EntryCount())
 	}
@@ -106,7 +111,7 @@ func runTestCacheFuncTTL(t *testing.T, cache cachefunk.Cache, expireAllEntries f
 	// Expire entries so we don't have to wait
 	expireAllEntries(false)
 	// Call with TTL=1 again, should delete old cache entry as expired and save new cache entry
-	CacheTTL(false, nil)
+	CacheTTL(&ctx, false, nil)
 	if count := cache.ExpiredEntryCount(nil); count != 0 {
 		t.Fatal("expected 0 expired cache entries but found", count)
 	}
@@ -121,7 +126,7 @@ func runTestCacheFuncTTL(t *testing.T, cache cachefunk.Cache, expireAllEntries f
 	}
 
 	// Test jitter
-	CacheTTLWithJitter(false, nil)
+	CacheTTLWithJitter(&ctx, false, nil)
 	cutoff := time.Now().UTC().Add(1 * time.Second)
 	if count := cache.ExpiredEntryCount(&cutoff); count != 0 {
 		t.Fatal("after CacheTTLWithJitter expected 0 expired cache entries but found", count)
@@ -130,7 +135,7 @@ func runTestCacheFuncTTL(t *testing.T, cache cachefunk.Cache, expireAllEntries f
 
 func runTestCacheFuncErrorsReturned(t *testing.T, cache cachefunk.Cache) {
 
-	failWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+	failWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "", errors.New("oh no")
 	}
 
@@ -140,7 +145,9 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache cachefunk.Cache) {
 		TTLJitter: 1,
 	})
 
-	if _, err := FailWorldString(false, nil); err == nil {
+	ctx := context.TODO()
+
+	if _, err := FailWorldString(&ctx, false, nil); err == nil {
 		t.Fatal("expected an error but got nil")
 	}
 
@@ -154,7 +161,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache cachefunk.Cache) {
 		TTLJitter: 1,
 	})
 
-	if _, err := FailWorldJSON(false, nil); err == nil {
+	if _, err := FailWorldJSON(&ctx, false, nil); err == nil {
 		t.Fatal("expected an error but got nil")
 	}
 
@@ -165,7 +172,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache cachefunk.Cache) {
 
 func runTestWrapString(t *testing.T, cache cachefunk.Cache) {
 	helloCounter := 0
-	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+	helloWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
 		helloCounter += 1
 		s := fmt.Sprintf("Hello %s, you are %d", params.Name, params.Age)
 		return s, nil
@@ -192,8 +199,10 @@ func runTestWrapString(t *testing.T, cache cachefunk.Cache) {
 		{true, "Bob", 42, "Hello Bob, you are 42", nil, 4},
 	}
 
+	ctx := context.TODO()
+
 	for line, tc := range testCases {
-		result, err := HelloWorld(tc.ignoreCache, &HelloWorldParams{
+		result, err := HelloWorld(&ctx, tc.ignoreCache, &HelloWorldParams{
 			Name: tc.name,
 			Age:  tc.age,
 		})
@@ -223,7 +232,7 @@ func runTestWrap(t *testing.T, cache cachefunk.Cache) {
 		Params *HelloWorldParams
 	}
 
-	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (*HelloWorldResult, error) {
+	helloWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (*HelloWorldResult, error) {
 		helloCounter += 1
 		s := fmt.Sprintf("Hello %s, you are %d", params.Name, params.Age)
 		return &HelloWorldResult{
@@ -252,8 +261,10 @@ func runTestWrap(t *testing.T, cache cachefunk.Cache) {
 		{true, &HelloWorldParams{"Bob", 42}, "Hello Bob, you are 42", nil, 4},
 	}
 
+	ctx := context.TODO()
+
 	for line, tc := range testCases {
-		result, err := HelloWorld(tc.ignoreCache, tc.params)
+		result, err := HelloWorld(&ctx, tc.ignoreCache, tc.params)
 
 		if err != nil {
 			t.Errorf("subtest %d: call to HelloWorld returned an error: %s", line+1, err)
@@ -296,7 +307,7 @@ func runTestWrap(t *testing.T, cache cachefunk.Cache) {
 	}
 
 	for line, tc := range testCases {
-		result, err := HelloWorld2(tc.ignoreCache, tc.params)
+		result, err := HelloWorld2(&ctx, tc.ignoreCache, tc.params)
 
 		if err != nil {
 			t.Errorf("subtest %d: call to HelloWorld returned an error: %s", line+1, err)

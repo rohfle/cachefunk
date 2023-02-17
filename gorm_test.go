@@ -1,6 +1,7 @@
 package cachefunk_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func ExampleGORMCache() {
 		Name string
 	}
 
-	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+	helloWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "Hello " + params.Name, nil
 	}
 
@@ -57,13 +58,16 @@ func ExampleGORMCache() {
 		Key: "hello",
 		TTL: 3600,
 	})
+
+	ctx := context.TODO()
+
 	// First call will get value from wrapped function
-	value, err := HelloWorld(false, &HelloWorldParams{
+	value, err := HelloWorld(&ctx, false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("First call:", value, err)
 	// Second call will get value from cache
-	value, err = HelloWorld(false, &HelloWorldParams{
+	value, err = HelloWorld(&ctx, false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("Second call:", value, err)

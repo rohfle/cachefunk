@@ -2,6 +2,7 @@
 package cachefunk
 
 import (
+	"context"
 	"encoding/json"
 	"math/rand"
 	"time"
@@ -65,11 +66,11 @@ func calculateExpiryTime(config *Config) *time.Time {
 
 // WrapString is a function wrapper that caches string or []byte responses.
 func WrapString[Params any, ResultType string | []byte](
-	retrieveFunc func(bool, Params) (ResultType, error),
+	retrieveFunc func(*context.Context, bool, Params) (ResultType, error),
 	cache Cache,
 	config Config,
-) func(bool, Params) (ResultType, error) {
-	return func(ignoreCache bool, params Params) (ResultType, error) {
+) func(*context.Context, bool, Params) (ResultType, error) {
+	return func(ctx *context.Context, ignoreCache bool, params Params) (ResultType, error) {
 		// serialize parameters for cache
 		// key + parameters determines a unique identifier for a request
 		var result ResultType
@@ -85,7 +86,7 @@ func WrapString[Params any, ResultType string | []byte](
 				return ResultType(value), nil
 			}
 		}
-		value, err := retrieveFunc(ignoreCache, params)
+		value, err := retrieveFunc(ctx, ignoreCache, params)
 		if err != nil {
 			return value, err
 		}
@@ -96,11 +97,11 @@ func WrapString[Params any, ResultType string | []byte](
 
 // Wrap is a function wrapper that caches responses of any json serializable type.
 func Wrap[Params any, ResultType any](
-	retrieveFunc func(bool, Params) (ResultType, error),
+	retrieveFunc func(*context.Context, bool, Params) (ResultType, error),
 	cache Cache,
 	config Config,
-) func(bool, Params) (ResultType, error) {
-	return func(ignoreCache bool, params Params) (ResultType, error) {
+) func(*context.Context, bool, Params) (ResultType, error) {
+	return func(ctx *context.Context, ignoreCache bool, params Params) (ResultType, error) {
 		// serialize parameters for cache
 		// key + parameters determines a unique identifier for a request
 		var result ResultType
@@ -120,7 +121,7 @@ func Wrap[Params any, ResultType any](
 				}
 			}
 		}
-		result, err = retrieveFunc(ignoreCache, params)
+		result, err = retrieveFunc(ctx, ignoreCache, params)
 		if err != nil {
 			return result, err
 		}

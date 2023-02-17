@@ -1,6 +1,7 @@
 package cachefunk_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func ExampleInMemoryCache() {
 		Name string
 	}
 
-	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+	helloWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "Hello " + params.Name, nil
 	}
 
@@ -42,13 +43,16 @@ func ExampleInMemoryCache() {
 		Key: "hello",
 		TTL: 3600,
 	})
+
+	ctx := context.TODO()
+
 	// First call will retrieve value from given function
-	value, err := HelloWorld(false, &HelloWorldParams{
+	value, err := HelloWorld(&ctx, false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println(value, err)
 	// Second call will retrieve value from cache
-	value, err = HelloWorld(false, &HelloWorldParams{
+	value, err = HelloWorld(&ctx, false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("Result:", value, err)
