@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+type CtxKey string
+
+const DEFAULT_IGNORE_CACHE_CTX_KEY CtxKey = "ignoreCache"
+
 // Cache is an interface that supports get/set of values by key
 type Cache interface {
 	// Get a value from the cache if it exists
@@ -24,6 +28,8 @@ type Cache interface {
 	// Delete entries that have expired in the cache compared to cutoff
 	// entries expiry compared to utc now if cutoff is nil
 	Cleanup(cutoff *time.Time)
+	// GetIgnoreCacheCtxKey returns the Value key under which ignoreCache is stored
+	GetIgnoreCacheCtxKey() CtxKey
 }
 
 // Config is used to configure the caching wrapper functions
@@ -66,11 +72,11 @@ func calculateExpiryTime(config *Config) *time.Time {
 
 // WrapString is a function wrapper that caches string or []byte responses.
 func WrapString[Params any, ResultType string | []byte](
-	retrieveFunc func(*context.Context, bool, Params) (ResultType, error),
+	retrieveFunc func(bool, Params) (ResultType, error),
 	cache Cache,
 	config Config,
-) func(*context.Context, bool, Params) (ResultType, error) {
-	return func(ctx *context.Context, ignoreCache bool, params Params) (ResultType, error) {
+) func(bool, Params) (ResultType, error) {
+	return func(ignoreCache bool, params Params) (ResultType, error) {
 		// serialize parameters for cache
 		// key + parameters determines a unique identifier for a request
 		var result ResultType
@@ -86,7 +92,7 @@ func WrapString[Params any, ResultType string | []byte](
 				return ResultType(value), nil
 			}
 		}
-		value, err := retrieveFunc(ctx, ignoreCache, params)
+		value, err := retrieveFunc(ignoreCache, params)
 		if err != nil {
 			return value, err
 		}
@@ -97,11 +103,11 @@ func WrapString[Params any, ResultType string | []byte](
 
 // Wrap is a function wrapper that caches responses of any json serializable type.
 func Wrap[Params any, ResultType any](
-	retrieveFunc func(*context.Context, bool, Params) (ResultType, error),
+	retrieveFunc func(bool, Params) (ResultType, error),
 	cache Cache,
 	config Config,
-) func(*context.Context, bool, Params) (ResultType, error) {
-	return func(ctx *context.Context, ignoreCache bool, params Params) (ResultType, error) {
+) func(bool, Params) (ResultType, error) {
+	return func(ignoreCache bool, params Params) (ResultType, error) {
 		// serialize parameters for cache
 		// key + parameters determines a unique identifier for a request
 		var result ResultType
@@ -121,7 +127,76 @@ func Wrap[Params any, ResultType any](
 				}
 			}
 		}
-		result, err = retrieveFunc(ctx, ignoreCache, params)
+		result, err = retrieveFunc(ignoreCache, params)
+		if err != nil {
+			return result, err
+		}
+		value, err := json.Marshal(result)
+		if err != nil {
+			return result, err
+		}
+		cache.Set(&config, paramsRendered, value)
+		return result, nil
+	}
+}
+
+// WrapStringWithContext is a function wrapper that caches string or []byte responses.
+func WrapStringWithContext[Params any, ResultType string | []byte](
+	retrieveFunc func(context.Context, Params) (ResultType, error),
+	cache Cache,
+	config Config,
+) func(context.Context, Params) (ResultType, error) {
+	return func(ctx context.Context, params Params) (ResultType, error) {
+		// serialize parameters for cache
+		// key + parameters determines a unique identifier for a request
+		var result ResultType
+		paramsRendered, err := renderParameters(params)
+		if err != nil {
+			return result, err
+		}
+		if ignoreCache, ok := ctx.Value(cache.GetIgnoreCacheCtxKey()).(bool); !ok || !ignoreCache {
+			// Look for existing value in cache
+			value, found := cache.Get(&config, paramsRendered)
+			if found {
+				return ResultType(value), nil
+			}
+		}
+		value, err := retrieveFunc(ctx, params)
+		if err != nil {
+			return value, err
+		}
+		cache.Set(&config, paramsRendered, []byte(value))
+		return value, nil
+	}
+}
+
+// WrapWithContext is a function wrapper that caches responses of any json serializable type.
+func WrapWithContext[Params any, ResultType any](
+	retrieveFunc func(context.Context, Params) (ResultType, error),
+	cache Cache,
+	config Config,
+) func(context.Context, Params) (ResultType, error) {
+	return func(ctx context.Context, params Params) (ResultType, error) {
+		// serialize parameters for cache
+		// key + parameters determines a unique identifier for a request
+		var result ResultType
+		paramsRendered, err := renderParameters(params)
+		if err != nil {
+			return result, err
+		}
+		if ignoreCache, ok := ctx.Value(cache.GetIgnoreCacheCtxKey()).(bool); !ok || !ignoreCache {
+			// Look for existing value in cache
+			value, found := cache.Get(&config, paramsRendered)
+			if found {
+				var result ResultType
+				if err := json.Unmarshal(value, &result); err == nil {
+					// Errors during unmarshal are ignored because the invalid cached value
+					// will be overwritten by a fresh response anyway
+					return result, nil
+				}
+			}
+		}
+		result, err = retrieveFunc(ctx, params)
 		if err != nil {
 			return result, err
 		}

@@ -10,14 +10,20 @@ type InMemoryCacheEntry struct {
 }
 
 type InMemoryCache struct {
-	Store map[string]*InMemoryCacheEntry
+	Store             map[string]*InMemoryCacheEntry
+	IgnoreCacheCtxKey CtxKey
 }
 
 func NewInMemoryCache() *InMemoryCache {
 	cache := InMemoryCache{
-		Store: make(map[string]*InMemoryCacheEntry, 0),
+		Store:             make(map[string]*InMemoryCacheEntry, 0),
+		IgnoreCacheCtxKey: DEFAULT_IGNORE_CACHE_CTX_KEY,
 	}
 	return &cache
+}
+
+func (c *InMemoryCache) GetIgnoreCacheCtxKey() CtxKey {
+	return c.IgnoreCacheCtxKey
 }
 
 func (c *InMemoryCache) Get(config *Config, params string) ([]byte, bool) {

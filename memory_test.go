@@ -1,7 +1,6 @@
 package cachefunk_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -14,9 +13,15 @@ func TestInMemoryCache(t *testing.T) {
 
 	runTestWrapString(t, cache)
 	cache.Clear()
+	runTestWrapStringWithContext(t, cache)
+	cache.Clear()
 	runTestWrap(t, cache)
 	cache.Clear()
+	runTestWrapWithContext(t, cache)
+	cache.Clear()
 	runTestCacheFuncErrorsReturned(t, cache)
+	cache.Clear()
+	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func(includeForever bool) {
 		for _, value := range cache.Store {
@@ -34,7 +39,7 @@ func ExampleInMemoryCache() {
 		Name string
 	}
 
-	helloWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
+	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "Hello " + params.Name, nil
 	}
 
@@ -44,15 +49,13 @@ func ExampleInMemoryCache() {
 		TTL: 3600,
 	})
 
-	ctx := context.TODO()
-
 	// First call will retrieve value from given function
-	value, err := HelloWorld(&ctx, false, &HelloWorldParams{
+	value, err := HelloWorld(false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println(value, err)
 	// Second call will retrieve value from cache
-	value, err = HelloWorld(&ctx, false, &HelloWorldParams{
+	value, err = HelloWorld(false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("Result:", value, err)

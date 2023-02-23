@@ -1,7 +1,6 @@
 package cachefunk_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -26,9 +25,15 @@ func TestGORMCache(t *testing.T) {
 	cache := cachefunk.NewGORMCache(db)
 	runTestWrapString(t, cache)
 	cache.Clear()
+	runTestWrapStringWithContext(t, cache)
+	cache.Clear()
 	runTestWrap(t, cache)
 	cache.Clear()
+	runTestWrapWithContext(t, cache)
+	cache.Clear()
 	runTestCacheFuncErrorsReturned(t, cache)
+	cache.Clear()
+	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func(includeForever bool) {
 		cache.DB.Model(cachefunk.CacheEntry{}).Where("expires_at IS NOT NULL").Update("expires_at", time.Now().UTC())
@@ -43,7 +48,7 @@ func ExampleGORMCache() {
 		Name string
 	}
 
-	helloWorld := func(ctx *context.Context, ignoreCache bool, params *HelloWorldParams) (string, error) {
+	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "Hello " + params.Name, nil
 	}
 
@@ -59,15 +64,13 @@ func ExampleGORMCache() {
 		TTL: 3600,
 	})
 
-	ctx := context.TODO()
-
 	// First call will get value from wrapped function
-	value, err := HelloWorld(&ctx, false, &HelloWorldParams{
+	value, err := HelloWorld(false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("First call:", value, err)
 	// Second call will get value from cache
-	value, err = HelloWorld(&ctx, false, &HelloWorldParams{
+	value, err = HelloWorld(false, &HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("Second call:", value, err)

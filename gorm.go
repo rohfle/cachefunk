@@ -9,7 +9,8 @@ import (
 )
 
 type GORMCache struct {
-	DB *gorm.DB
+	DB                *gorm.DB
+	IgnoreCacheCtxKey CtxKey
 }
 
 type CacheEntry struct {
@@ -26,9 +27,14 @@ func NewGORMCache(db *gorm.DB) *GORMCache {
 		DB: db.Session(&gorm.Session{
 			Logger: logger.Default.LogMode(logger.Silent),
 		}),
+		IgnoreCacheCtxKey: DEFAULT_IGNORE_CACHE_CTX_KEY,
 	}
 	db.AutoMigrate(&CacheEntry{})
 	return &cache
+}
+
+func (c *GORMCache) GetIgnoreCacheCtxKey() CtxKey {
+	return c.IgnoreCacheCtxKey
 }
 
 func (c *GORMCache) Get(config *Config, params string) ([]byte, bool) {
