@@ -2,8 +2,11 @@
 package cachefunk
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"math/rand"
 	"time"
 )
@@ -44,6 +47,8 @@ type Config struct {
 	// When TTLJitter is > 0, a random value from 1 to TTLJitter will be added to TTL
 	// This spreads cache expiry out to stop getting fresh responses all at once
 	TTLJitter int64
+	// Enable compression of data by gzip
+	UseCompression bool
 }
 
 // renderParameters returns a string representation of params
@@ -68,6 +73,25 @@ func calculateExpiryTime(config *Config) *time.Time {
 	}
 	expiresAt := time.Now().Add(time.Duration(ttl) * time.Second).UTC()
 	return &expiresAt
+}
+
+func compressBytes(input []byte) ([]byte, error) {
+	var output bytes.Buffer
+	writer := gzip.NewWriter(&output)
+	writer.Write(input)
+	err := writer.Close()
+	if err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func decompressBytes(input []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(input))
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(reader)
 }
 
 // WrapString is a function wrapper that caches string or []byte responses.

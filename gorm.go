@@ -14,12 +14,13 @@ type GORMCache struct {
 }
 
 type CacheEntry struct {
-	ID        int64      `json:"id" gorm:"primaryKey"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	Key       string     `json:"key" gorm:"uniqueIndex:idx_key_params;not null"`
-	Params    string     `json:"params" gorm:"uniqueIndex:idx_key_params;not null"`
-	Data      []byte     `json:"data" gorm:"not null"`
+	ID           int64      `json:"id" gorm:"primaryKey"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    *time.Time `json:"expires_at"`
+	Key          string     `json:"key" gorm:"uniqueIndex:idx_key_params;not null"`
+	Params       string     `json:"params" gorm:"uniqueIndex:idx_key_params;not null"`
+	IsCompressed bool       `json:"is_compressed" gorm:"default:false;not null"`
+	Data         []byte     `json:"data" gorm:"not null"`
 }
 
 func NewGORMCache(db *gorm.DB) *GORMCache {
@@ -50,7 +51,16 @@ func (c *GORMCache) Get(config *Config, params string) ([]byte, bool) {
 		c.DB.Delete(&cacheEntry)
 		return nil, false
 	}
-	return cacheEntry.Data, true
+
+	value := cacheEntry.Data
+	if cacheEntry.IsCompressed {
+		var err error
+		value, err = decompressBytes(value)
+		if err != nil {
+			return nil, false
+		}
+	}
+	return value, true
 }
 
 // Set will set a cache value by its key and params
@@ -60,17 +70,26 @@ func (c *GORMCache) Set(config *Config, params string, value []byte) {
 	}
 	expiresAt := calculateExpiryTime(config)
 
+	if config.UseCompression {
+		var err error
+		value, err = compressBytes(value)
+		if err != nil {
+			return
+		}
+	}
+
 	cacheEntry := CacheEntry{
-		Key:       config.Key,
-		Params:    params,
-		Data:      value,
-		ExpiresAt: expiresAt,
+		Key:          config.Key,
+		Params:       params,
+		Data:         value,
+		ExpiresAt:    expiresAt,
+		IsCompressed: config.UseCompression,
 	}
 
 	// create or update cacheEntry
 	c.DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}, {Name: "params"}},
-		DoUpdates: clause.AssignmentColumns([]string{"data", "expires_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"data", "expires_at", "is_compressed"}),
 	}).Create(&cacheEntry)
 }
 
