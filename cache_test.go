@@ -2,6 +2,7 @@ package cachefunk_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -403,8 +404,9 @@ func runTestWrap(t *testing.T, cache cachefunk.Cache) {
 	}
 
 	HelloWorld2 := cachefunk.Wrap(helloWorld, cache, cachefunk.Config{
-		Key: "helloWorld2",
-		TTL: 5,
+		Key:            "helloWorld2",
+		TTL:            5,
+		UseCompression: true,
 	})
 
 	testCases = []struct {
@@ -439,6 +441,22 @@ func runTestWrap(t *testing.T, cache cachefunk.Cache) {
 		if t.Failed() {
 			return
 		}
+	}
+
+	// test compression with bad gzipped value
+	params := &HelloWorldParams{"Bob", 43}
+	paramsRendered, _ := json.Marshal(params)
+	doctoredResult := &HelloWorldResult{
+		Result: "something else",
+		Params: nil,
+	}
+	raw, _ := json.Marshal(doctoredResult)
+	cache.SetRaw("helloWorld2", string(paramsRendered), raw, nil, true)
+	result, err := HelloWorld2(false, params)
+	if err != nil {
+		t.Errorf("testing gzip bad decompression: %s", err)
+	} else if result.Result == "something else" {
+		t.Errorf("got unexpected poisoned value")
 	}
 
 	cache.Clear()

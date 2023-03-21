@@ -5,8 +5,9 @@ import (
 )
 
 type InMemoryCacheEntry struct {
-	Data      string
-	ExpiresAt *time.Time
+	Data         string
+	ExpiresAt    *time.Time
+	IsCompressed bool
 }
 
 type InMemoryCache struct {
@@ -39,7 +40,17 @@ func (c *InMemoryCache) Get(config *Config, params string) ([]byte, bool) {
 		return nil, false
 	}
 
-	return []byte(value.Data), true
+	data := []byte(value.Data)
+
+	if value.IsCompressed {
+		var err error
+		data, err = decompressBytes(data)
+		if err != nil {
+			return nil, false
+		}
+	}
+
+	return data, true
 }
 
 func (c *InMemoryCache) Set(config *Config, params string, value []byte) {
@@ -48,10 +59,23 @@ func (c *InMemoryCache) Set(config *Config, params string, value []byte) {
 	}
 	expiresAt := calculateExpiryTime(config)
 
-	fullKey := config.Key + ": " + params
+	if config.UseCompression {
+		var err error
+		value, err = compressBytes(value)
+		if err != nil {
+			return
+		}
+	}
+
+	c.SetRaw(config.Key, params, value, expiresAt, config.UseCompression)
+}
+
+func (c *InMemoryCache) SetRaw(key string, params string, value []byte, expiresAt *time.Time, isCompressed bool) {
+	fullKey := key + ": " + params
 	c.Store[fullKey] = &InMemoryCacheEntry{
-		Data:      string(value),
-		ExpiresAt: expiresAt,
+		Data:         string(value),
+		ExpiresAt:    expiresAt,
+		IsCompressed: isCompressed,
 	}
 }
 

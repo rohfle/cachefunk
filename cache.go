@@ -21,6 +21,8 @@ type Cache interface {
 	Get(config *Config, params string) (value []byte, found bool)
 	// Set a value in the cache
 	Set(config *Config, params string, value []byte)
+	// Set a raw value for key in the cache
+	SetRaw(key string, params string, value []byte, expiresAt *time.Time, isCompressed bool)
 	// Get the number of entries in the cache
 	EntryCount() int64
 	// Get how many entries have expired in the cache compared to cutoff

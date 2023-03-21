@@ -78,12 +78,17 @@ func (c *GORMCache) Set(config *Config, params string, value []byte) {
 		}
 	}
 
+	c.SetRaw(config.Key, params, value, expiresAt, config.UseCompression)
+}
+
+// SetRaw will set a cache value by its key and params
+func (c *GORMCache) SetRaw(key string, params string, value []byte, expiresAt *time.Time, useCompression bool) {
 	cacheEntry := CacheEntry{
-		Key:          config.Key,
+		Key:          key,
 		Params:       params,
 		Data:         value,
 		ExpiresAt:    expiresAt,
-		IsCompressed: config.UseCompression,
+		IsCompressed: useCompression,
 	}
 
 	// create or update cacheEntry
