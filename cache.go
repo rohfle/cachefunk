@@ -94,6 +94,20 @@ func decompressBytes(input []byte) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
+// Wrap type functions
+// These don't work with type methods unfortunately
+
+// Wrap is a function wrapper that caches responses of any json serializable type.
+func Wrap[Params any, ResultType any](
+	retrieveFunc func(bool, Params) (ResultType, error),
+	cache Cache,
+	config Config,
+) func(bool, Params) (ResultType, error) {
+	return func(ignoreCache bool, params Params) (ResultType, error) {
+		return CacheResult(cache, config, retrieveFunc, ignoreCache, params)
+	}
+}
+
 // WrapString is a function wrapper that caches string or []byte responses.
 func WrapString[Params any, ResultType string | []byte](
 	retrieveFunc func(bool, Params) (ResultType, error),
@@ -104,6 +118,31 @@ func WrapString[Params any, ResultType string | []byte](
 		return CacheString(cache, config, retrieveFunc, ignoreCache, params)
 	}
 }
+
+// WrapWithContext is a function wrapper that caches responses of any json serializable type.
+func WrapWithContext[Params any, ResultType any](
+	retrieveFunc func(context.Context, Params) (ResultType, error),
+	cache Cache,
+	config Config,
+) func(context.Context, Params) (ResultType, error) {
+	return func(ctx context.Context, params Params) (ResultType, error) {
+		return CacheWithContext(cache, config, retrieveFunc, ctx, params)
+	}
+}
+
+// WrapStringWithContext is a function wrapper that caches string or []byte responses.
+func WrapStringWithContext[Params any, ResultType string | []byte](
+	retrieveFunc func(context.Context, Params) (ResultType, error),
+	cache Cache,
+	config Config,
+) func(context.Context, Params) (ResultType, error) {
+	return func(ctx context.Context, params Params) (ResultType, error) {
+		return CacheStringWithContext(cache, config, retrieveFunc, ctx, params)
+	}
+}
+
+// Cache functions
+// Less pretty than wrappers but they work with type methods
 
 func CacheString[Params any, ResultType string | []byte](
 	cache Cache,
@@ -135,18 +174,7 @@ func CacheString[Params any, ResultType string | []byte](
 	return value, nil
 }
 
-// Wrap is a function wrapper that caches responses of any json serializable type.
-func Wrap[Params any, ResultType any](
-	retrieveFunc func(bool, Params) (ResultType, error),
-	cache Cache,
-	config Config,
-) func(bool, Params) (ResultType, error) {
-	return func(ignoreCache bool, params Params) (ResultType, error) {
-		return CacheResult(cache, config, retrieveFunc, ignoreCache, params)
-	}
-}
-
-// WrapWithContext is a function wrapper that caches responses of any json serializable type.
+// CacheResult is a function wrapper that caches responses of any json serializable type.
 func CacheResult[Params any, ResultType any](
 	cache Cache,
 	config Config,
@@ -185,17 +213,6 @@ func CacheResult[Params any, ResultType any](
 	return result, nil
 }
 
-// WrapStringWithContext is a function wrapper that caches string or []byte responses.
-func WrapStringWithContext[Params any, ResultType string | []byte](
-	retrieveFunc func(context.Context, Params) (ResultType, error),
-	cache Cache,
-	config Config,
-) func(context.Context, Params) (ResultType, error) {
-	return func(ctx context.Context, params Params) (ResultType, error) {
-		return CacheStringWithContext(cache, config, retrieveFunc, ctx, params)
-	}
-}
-
 // CacheWithStringContext caches string or []byte responses.
 func CacheStringWithContext[Params any, ResultType string | []byte](
 	cache Cache,
@@ -224,17 +241,6 @@ func CacheStringWithContext[Params any, ResultType string | []byte](
 	}
 	cache.Set(&config, paramsRendered, []byte(value))
 	return value, nil
-}
-
-// WrapWithContext is a function wrapper that caches responses of any json serializable type.
-func WrapWithContext[Params any, ResultType any](
-	retrieveFunc func(context.Context, Params) (ResultType, error),
-	cache Cache,
-	config Config,
-) func(context.Context, Params) (ResultType, error) {
-	return func(ctx context.Context, params Params) (ResultType, error) {
-		return CacheWithContext(cache, config, retrieveFunc, ctx, params)
-	}
 }
 
 // CacheWithContext caches responses of any json serializable type.
