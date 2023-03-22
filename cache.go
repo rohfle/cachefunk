@@ -54,7 +54,7 @@ type Config struct {
 }
 
 // renderParameters returns a string representation of params
-func renderParameters(params interface{}) (string, error) {
+func RenderParameters(params interface{}) (string, error) {
 	raw, err := json.Marshal(params)
 	if err != nil {
 		return "", err
@@ -156,7 +156,7 @@ func CacheString[Params any, ResultType string | []byte](
 	// serialize parameters for cache
 	// key + parameters determines a unique identifier for a request
 	var result ResultType
-	paramsRendered, err := renderParameters(params)
+	paramsRendered, err := RenderParameters(params)
 	if err != nil {
 		return result, err
 	}
@@ -187,7 +187,7 @@ func CacheResult[Params any, ResultType any](
 	// serialize parameters for cache
 	// key + parameters determines a unique identifier for a request
 	var result ResultType
-	paramsRendered, err := renderParameters(params)
+	paramsRendered, err := RenderParameters(params)
 	if err != nil {
 		return result, err
 	}
@@ -226,7 +226,7 @@ func CacheStringWithContext[Params any, ResultType string | []byte](
 	// serialize parameters for cache
 	// key + parameters determines a unique identifier for a request
 	var result ResultType
-	paramsRendered, err := renderParameters(params)
+	paramsRendered, err := RenderParameters(params)
 	if err != nil {
 		return result, err
 	}
@@ -256,7 +256,7 @@ func CacheWithContext[Params any, ResultType any](
 	// serialize parameters for cache
 	// key + parameters determines a unique identifier for a request
 	var result ResultType
-	paramsRendered, err := renderParameters(params)
+	paramsRendered, err := RenderParameters(params)
 	if err != nil {
 		return result, err
 	}
