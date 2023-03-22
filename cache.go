@@ -18,9 +18,9 @@ const DEFAULT_IGNORE_CACHE_CTX_KEY CtxKey = "ignoreCache"
 // Cache is an interface that supports get/set of values by key
 type Cache interface {
 	// Get a value from the cache if it exists
-	Get(config *Config, params string) (value []byte, found bool)
+	Get(config Config, params string) (value []byte, found bool)
 	// Set a value in the cache
-	Set(config *Config, params string, value []byte)
+	Set(config Config, params string, value []byte)
 	// Set a raw value for key in the cache
 	SetRaw(key string, params string, value []byte, expiresAt *time.Time, isCompressed bool)
 	// Get the number of entries in the cache
@@ -163,7 +163,7 @@ func CacheString[Params any, ResultType string | []byte](
 
 	if !ignoreCache {
 		// Look for existing value in cache
-		value, found := cache.Get(&config, paramsRendered)
+		value, found := cache.Get(config, paramsRendered)
 		if found {
 			return ResultType(value), nil
 		}
@@ -172,7 +172,7 @@ func CacheString[Params any, ResultType string | []byte](
 	if err != nil {
 		return value, err
 	}
-	cache.Set(&config, paramsRendered, []byte(value))
+	cache.Set(config, paramsRendered, []byte(value))
 	return value, nil
 }
 
@@ -193,7 +193,7 @@ func CacheResult[Params any, ResultType any](
 	}
 	if !ignoreCache {
 		// Look for existing value in cache
-		value, found := cache.Get(&config, paramsRendered)
+		value, found := cache.Get(config, paramsRendered)
 		if found {
 			var result ResultType
 			if err := json.Unmarshal(value, &result); err == nil {
@@ -211,7 +211,7 @@ func CacheResult[Params any, ResultType any](
 	if err != nil {
 		return result, err
 	}
-	cache.Set(&config, paramsRendered, value)
+	cache.Set(config, paramsRendered, value)
 	return result, nil
 }
 
@@ -232,7 +232,7 @@ func CacheStringWithContext[Params any, ResultType string | []byte](
 	}
 	if ignoreCache, ok := ctx.Value(cache.GetIgnoreCacheCtxKey()).(bool); !ok || !ignoreCache {
 		// Look for existing value in cache
-		value, found := cache.Get(&config, paramsRendered)
+		value, found := cache.Get(config, paramsRendered)
 		if found {
 			return ResultType(value), nil
 		}
@@ -241,7 +241,7 @@ func CacheStringWithContext[Params any, ResultType string | []byte](
 	if err != nil {
 		return value, err
 	}
-	cache.Set(&config, paramsRendered, []byte(value))
+	cache.Set(config, paramsRendered, []byte(value))
 	return value, nil
 }
 
@@ -262,7 +262,7 @@ func CacheWithContext[Params any, ResultType any](
 	}
 	if ignoreCache, ok := ctx.Value(cache.GetIgnoreCacheCtxKey()).(bool); !ok || !ignoreCache {
 		// Look for existing value in cache
-		value, found := cache.Get(&config, paramsRendered)
+		value, found := cache.Get(config, paramsRendered)
 		if found {
 			var result ResultType
 			if err := json.Unmarshal(value, &result); err == nil {
@@ -280,6 +280,6 @@ func CacheWithContext[Params any, ResultType any](
 	if err != nil {
 		return result, err
 	}
-	cache.Set(&config, paramsRendered, value)
+	cache.Set(config, paramsRendered, value)
 	return result, nil
 }

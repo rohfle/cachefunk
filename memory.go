@@ -27,7 +27,7 @@ func (c *InMemoryCache) GetIgnoreCacheCtxKey() CtxKey {
 	return c.IgnoreCacheCtxKey
 }
 
-func (c *InMemoryCache) Get(config *Config, params string) ([]byte, bool) {
+func (c *InMemoryCache) Get(config Config, params string) ([]byte, bool) {
 	fullKey := config.Key + ": " + params
 	value, found := c.Store[fullKey]
 	if !found {
@@ -53,11 +53,11 @@ func (c *InMemoryCache) Get(config *Config, params string) ([]byte, bool) {
 	return data, true
 }
 
-func (c *InMemoryCache) Set(config *Config, params string, value []byte) {
+func (c *InMemoryCache) Set(config Config, params string, value []byte) {
 	if config.TTL == 0 {
 		return // immediately discard the entry
 	}
-	expiresAt := calculateExpiryTime(config)
+	expiresAt := calculateExpiryTime(&config)
 
 	if config.UseCompression {
 		var err error

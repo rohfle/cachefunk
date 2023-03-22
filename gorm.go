@@ -38,7 +38,7 @@ func (c *GORMCache) GetIgnoreCacheCtxKey() CtxKey {
 	return c.IgnoreCacheCtxKey
 }
 
-func (c *GORMCache) Get(config *Config, params string) ([]byte, bool) {
+func (c *GORMCache) Get(config Config, params string) ([]byte, bool) {
 	var cacheEntry CacheEntry
 
 	result := c.DB.Where("key = ? AND params = ?", config.Key, params).First(&cacheEntry)
@@ -64,11 +64,11 @@ func (c *GORMCache) Get(config *Config, params string) ([]byte, bool) {
 }
 
 // Set will set a cache value by its key and params
-func (c *GORMCache) Set(config *Config, params string, value []byte) {
+func (c *GORMCache) Set(config Config, params string, value []byte) {
 	if config.TTL == 0 {
 		return // immediately discard the entry
 	}
-	expiresAt := calculateExpiryTime(config)
+	expiresAt := calculateExpiryTime(&config)
 
 	if config.UseCompression {
 		var err error
