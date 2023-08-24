@@ -85,17 +85,14 @@ func main() {
 
 ## API
 
-- WrapString: store the result as []byte
-- Wrap: encode as JSON and then store the result as []byte
-
-## Dreams for the Future
-
-- "Unvariadicize" to allow
-	- passing through set number of args
-	- through wrapper which caches using variadic
-	- to wrapped function that takes set number of non-variadic args
-- Export wrapped functions at the package level more easily
-- Allow generic methods on types
+- WrapString: store result as []byte
+- WrapObject: encode result as JSON and then store as []byte
+- WrapStringWithContext
+- WrapObjectWithContext
+- CacheString
+- CacheObject
+- CacheStringWithContext
+- CacheObjectWithContext
 
 
 ## Version History
