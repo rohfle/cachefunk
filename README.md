@@ -8,19 +8,20 @@ Use wrapper functions to cache function output in golang.
 
 ## Features
 
-- Currently supported cache adapters:
-	- any GORM-supported database
-	- in-memory caching
+- Currently supported cache types:
+	- GORM
+	- in-memory
+	- disk-based
 - Configurable TTL and TTL jitter
 - Cleanup function for periodic removal of expired entries
-- Uses go generics, in IDE type checked parameters and result
+- Uses go generics
 - Can ignore cached values
 
 ## Getting Started
 
 ### Dependencies
 
-* go version that supports generics (tested on v1.19)
+* go version that supports generics (tested on v1.21)
 
 ### Installing
 
@@ -52,7 +53,13 @@ func main() {
 		panic("failed to connect database")
 	}
 
-	cache := cachefunk.NewGORMCache(db)
+	cache := cachefunk.NewGORMCache(db, map[string]cachefunk.Config{
+		"cache.hello.world": {
+			TTL: 3600,
+			TTLJitter: 900,
+			UseCompression: true,
+		}
+	})
 
     // Define a function
 	// ignoreCache is passed through if the function calls other wrapped functions.
@@ -64,19 +71,16 @@ func main() {
 	}
 
     // Wrap the function
-	HelloWorld := cachefunk.WrapString(helloWorld, cache, cachefunk.Config{
-		Key: "hello",
-		TTL: 3600,
-	})
+	HelloWorld := cachefunk.WrapString(cache, "cache.hello.world", helloWorld)
 
 	// First call will get value from wrapped function
-	value, err := HelloWorld(false, &HelloWorldParams{
+	value, err := HelloWorld(&HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("First call:", value, err)
 
 	// Second call will get value from cache
-	value, err = HelloWorld(false, &HelloWorldParams{
+	value, err = HelloWorld(&HelloWorldParams{
 		Name: "bob",
 	})
 	fmt.Println("Second call:", value, err)
@@ -85,22 +89,18 @@ func main() {
 
 ## API
 
-- WrapString: store the result as []byte
-- Wrap: encode as JSON and then store the result as []byte
-
-## Dreams for the Future
-
-- "Unvariadicize" to allow
-	- passing through set number of args
-	- through wrapper which caches using variadic
-	- to wrapped function that takes set number of non-variadic args
-- Export wrapped functions at the package level more easily
-- Allow generic methods on types
-
+- WrapString: store result as []byte
+- WrapObject: encode result as JSON and then store as []byte
+- WrapStringWithContext
+- WrapObjectWithContext
+- CacheString
+- CacheObject
+- CacheStringWithContext
+- CacheObjectWithContext
 
 ## Version History
 
-* 0.1
+* 0.0.1
     * Initial Release
 
 ## License

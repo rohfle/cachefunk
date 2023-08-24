@@ -2,14 +2,17 @@ package cachefunk_test
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/rohfle/cachefunk"
 )
 
-func TestInMemoryCache(t *testing.T) {
-	cache := cachefunk.NewInMemoryCache()
+func TestDiskCache(t *testing.T) {
+	cache := cachefunk.NewDiskCache(t.TempDir())
 
 	runTestWrapString(t, cache)
 	cache.Clear()
@@ -24,14 +27,17 @@ func TestInMemoryCache(t *testing.T) {
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		for _, value := range cache.Store {
-			value.Timestamp = time.Time{}
-		}
+		cache.IterateFiles(cache.BasePath, func(parent string, file fs.DirEntry) {
+			if _, err := file.Info(); err != nil {
+				return
+			}
+			os.Chtimes(filepath.Join(parent, file.Name()), time.Time{}, time.Unix(0, 0))
+		})
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
 }
 
-func ExampleInMemoryCache() {
+func ExampleDiskCache() {
 	type HelloWorldParams struct {
 		Name string
 	}
@@ -40,7 +46,7 @@ func ExampleInMemoryCache() {
 		return "Hello " + params.Name, nil
 	}
 
-	cache := cachefunk.NewInMemoryCache()
+	cache := cachefunk.NewDiskCache("/path/to/cache")
 
 	HelloWorld := cachefunk.WrapString(cache, "hello", helloWorld)
 	params := &HelloWorldParams{

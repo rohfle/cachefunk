@@ -9,18 +9,22 @@ import (
 )
 
 type GORMCache struct {
+	CacheConfig       *CacheFunkConfig
 	DB                *gorm.DB
 	IgnoreCacheCtxKey CtxKey
 }
 
+func (c *GORMCache) SetConfig(config *CacheFunkConfig) {
+	c.CacheConfig = config
+}
+
 type CacheEntry struct {
-	ID           int64      `json:"id" gorm:"primaryKey"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ExpiresAt    *time.Time `json:"expires_at"`
-	Key          string     `json:"key" gorm:"uniqueIndex:idx_key_params;not null"`
-	Params       string     `json:"params" gorm:"uniqueIndex:idx_key_params;not null"`
-	IsCompressed bool       `json:"is_compressed" gorm:"default:false;not null"`
-	Data         []byte     `json:"data" gorm:"not null"`
+	ID           int64     `json:"id" gorm:"primaryKey"`
+	Timestamp    time.Time `json:"timestamp" gorm:"not null"`
+	Key          string    `json:"key" gorm:"uniqueIndex:idx_key_params;not null"`
+	Params       string    `json:"params" gorm:"uniqueIndex:idx_key_params;not null"`
+	IsCompressed bool      `json:"is_compressed" gorm:"default:false;not null"`
+	Data         []byte    `json:"data" gorm:"not null"`
 }
 
 func NewGORMCache(db *gorm.DB) *GORMCache {
@@ -38,16 +42,17 @@ func (c *GORMCache) GetIgnoreCacheCtxKey() CtxKey {
 	return c.IgnoreCacheCtxKey
 }
 
-func (c *GORMCache) Get(config Config, params string) ([]byte, bool) {
+func (c *GORMCache) Get(key string, params string) ([]byte, bool) {
 	var cacheEntry CacheEntry
 
-	result := c.DB.Where("key = ? AND params = ?", config.Key, params).First(&cacheEntry)
+	result := c.DB.Where("key = ? AND params = ?", key, params).First(&cacheEntry)
 	if result.Error != nil {
 		return nil, false
 	}
 	// if entry has expired, delete and return not found
-	timeNow := time.Now().UTC()
-	if cacheEntry.ExpiresAt != nil && timeNow.After(*cacheEntry.ExpiresAt) {
+	config := c.CacheConfig.Get(key)
+	expiry := cacheEntry.Timestamp.Add(time.Second * time.Duration(config.TTL))
+	if time.Now().UTC().After(expiry) {
 		c.DB.Delete(&cacheEntry)
 		return nil, false
 	}
@@ -64,11 +69,16 @@ func (c *GORMCache) Get(config Config, params string) ([]byte, bool) {
 }
 
 // Set will set a cache value by its key and params
-func (c *GORMCache) Set(config Config, params string, value []byte) {
-	if config.TTL == 0 {
+func (c *GORMCache) Set(key string, params string, value []byte) {
+	config := c.CacheConfig.Get(key)
+	if config.TTL <= 0 {
 		return // immediately discard the entry
 	}
-	expiresAt := calculateExpiryTime(&config)
+
+	timestamp := time.Now().UTC()
+	if config.TTLJitter > 0 {
+		timestamp = timestamp.Add(-1 * time.Duration(config.TTLJitter) * time.Second)
+	}
 
 	if config.UseCompression {
 		var err error
@@ -78,23 +88,23 @@ func (c *GORMCache) Set(config Config, params string, value []byte) {
 		}
 	}
 
-	c.SetRaw(config.Key, params, value, expiresAt, config.UseCompression)
+	c.SetRaw(key, params, value, timestamp, config.UseCompression)
 }
 
 // SetRaw will set a cache value by its key and params
-func (c *GORMCache) SetRaw(key string, params string, value []byte, expiresAt *time.Time, useCompression bool) {
+func (c *GORMCache) SetRaw(key string, params string, value []byte, timestamp time.Time, useCompression bool) {
 	cacheEntry := CacheEntry{
 		Key:          key,
 		Params:       params,
 		Data:         value,
-		ExpiresAt:    expiresAt,
+		Timestamp:    timestamp,
 		IsCompressed: useCompression,
 	}
 
 	// create or update cacheEntry
 	c.DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}, {Name: "params"}},
-		DoUpdates: clause.AssignmentColumns([]string{"data", "expires_at", "is_compressed"}),
+		DoUpdates: clause.AssignmentColumns([]string{"data", "timestamp", "is_compressed"}),
 	}).Create(&cacheEntry)
 }
 
@@ -104,12 +114,12 @@ func (c *GORMCache) Clear() {
 }
 
 // Cleanup will delete all cache entries that have expired
-func (c *GORMCache) Cleanup(cutoff *time.Time) {
-	if cutoff == nil {
-		t := time.Now().UTC()
-		cutoff = &t
+func (c *GORMCache) Cleanup() {
+	now := time.Now().UTC()
+	for key, config := range c.CacheConfig.Configs {
+		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
+		c.DB.Where("key = ? AND timestamp < ?", key, cutoff).Delete(&CacheEntry{})
 	}
-	c.DB.Where("expires_at IS NOT NULL AND expires_at < ?", cutoff).Delete(&CacheEntry{})
 }
 
 func (c *GORMCache) EntryCount() int64 {
@@ -118,15 +128,14 @@ func (c *GORMCache) EntryCount() int64 {
 	return count
 }
 
-func (c *GORMCache) ExpiredEntryCount(cutoff *time.Time) int64 {
-	if cutoff == nil {
-		t := time.Now().UTC()
-		cutoff = &t
+func (c *GORMCache) ExpiredEntryCount() int64 {
+	now := time.Now().UTC()
+	var total int64
+	for key, config := range c.CacheConfig.Configs {
+		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
+		var count int64
+		c.DB.Model(&CacheEntry{}).Where("key = ? AND timestamp < ?", key, cutoff).Count(&count)
+		total += count
 	}
-
-	var count int64
-	c.DB.Model(&CacheEntry{}).Where("expires_at IS NOT NULL AND expires_at < ?",
-		cutoff,
-	).Count(&count)
-	return count
+	return total
 }

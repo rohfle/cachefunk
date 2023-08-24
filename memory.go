@@ -1,18 +1,24 @@
 package cachefunk
 
 import (
+	"strings"
 	"time"
 )
 
 type InMemoryCacheEntry struct {
 	Data         string
-	ExpiresAt    *time.Time
+	Timestamp    time.Time
 	IsCompressed bool
 }
 
 type InMemoryCache struct {
+	CacheConfig       *CacheFunkConfig
 	Store             map[string]*InMemoryCacheEntry
 	IgnoreCacheCtxKey CtxKey
+}
+
+func (c *InMemoryCache) SetConfig(config *CacheFunkConfig) {
+	c.CacheConfig = config
 }
 
 func NewInMemoryCache() *InMemoryCache {
@@ -27,15 +33,16 @@ func (c *InMemoryCache) GetIgnoreCacheCtxKey() CtxKey {
 	return c.IgnoreCacheCtxKey
 }
 
-func (c *InMemoryCache) Get(config Config, params string) ([]byte, bool) {
-	fullKey := config.Key + ": " + params
+func (c *InMemoryCache) Get(key string, params string) ([]byte, bool) {
+	fullKey := key + ":" + params
 	value, found := c.Store[fullKey]
 	if !found {
 		return nil, false
 	}
 	// check if cached value has expired
-	timeNow := time.Now().UTC()
-	if value.ExpiresAt != nil && timeNow.After(*value.ExpiresAt) {
+	config := c.CacheConfig.Get(key)
+	expiry := value.Timestamp.Add(time.Second * time.Duration(config.TTL))
+	if time.Now().UTC().After(expiry) {
 		delete(c.Store, fullKey)
 		return nil, false
 	}
@@ -53,11 +60,16 @@ func (c *InMemoryCache) Get(config Config, params string) ([]byte, bool) {
 	return data, true
 }
 
-func (c *InMemoryCache) Set(config Config, params string, value []byte) {
-	if config.TTL == 0 {
+func (c *InMemoryCache) Set(key string, params string, value []byte) {
+	config := c.CacheConfig.Get(key)
+	if config.TTL <= 0 {
 		return // immediately discard the entry
 	}
-	expiresAt := calculateExpiryTime(&config)
+
+	timestamp := time.Now().UTC()
+	if config.TTLJitter > 0 {
+		timestamp = timestamp.Add(-1 * time.Duration(config.TTLJitter) * time.Second)
+	}
 
 	if config.UseCompression {
 		var err error
@@ -67,14 +79,14 @@ func (c *InMemoryCache) Set(config Config, params string, value []byte) {
 		}
 	}
 
-	c.SetRaw(config.Key, params, value, expiresAt, config.UseCompression)
+	c.SetRaw(key, params, value, timestamp, config.UseCompression)
 }
 
-func (c *InMemoryCache) SetRaw(key string, params string, value []byte, expiresAt *time.Time, isCompressed bool) {
-	fullKey := key + ": " + params
+func (c *InMemoryCache) SetRaw(key string, params string, value []byte, timestamp time.Time, isCompressed bool) {
+	fullKey := key + ":" + params
 	c.Store[fullKey] = &InMemoryCacheEntry{
 		Data:         string(value),
-		ExpiresAt:    expiresAt,
+		Timestamp:    timestamp,
 		IsCompressed: isCompressed,
 	}
 }
@@ -83,20 +95,19 @@ func (c *InMemoryCache) Clear() {
 	c.Store = make(map[string]*InMemoryCacheEntry, 0)
 }
 
-func (c *InMemoryCache) Cleanup(cutoff *time.Time) {
-	if cutoff == nil {
-		t := time.Now().UTC()
-		cutoff = &t
-	}
-	var expiredKeys []string
-	for key, value := range c.Store {
-		if value.ExpiresAt != nil && value.ExpiresAt.Before(*cutoff) {
-			expiredKeys = append(expiredKeys, key)
+func (c *InMemoryCache) Cleanup() {
+	now := time.Now().UTC()
+	for key, config := range c.CacheConfig.Configs {
+		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
+		var expiredKeys []string
+		for fullkey, value := range c.Store {
+			if strings.HasPrefix(fullkey, key+":") && value.Timestamp.Before(cutoff) {
+				expiredKeys = append(expiredKeys, fullkey)
+			}
 		}
-	}
-
-	for _, key := range expiredKeys {
-		delete(c.Store, key)
+		for _, fullkey := range expiredKeys {
+			delete(c.Store, fullkey)
+		}
 	}
 }
 
@@ -104,15 +115,15 @@ func (c *InMemoryCache) EntryCount() int64 {
 	return int64(len(c.Store))
 }
 
-func (c *InMemoryCache) ExpiredEntryCount(cutoff *time.Time) int64 {
+func (c *InMemoryCache) ExpiredEntryCount() int64 {
 	var count int64 = 0
-	if cutoff == nil {
-		t := time.Now().UTC()
-		cutoff = &t
-	}
-	for _, value := range c.Store {
-		if value.ExpiresAt != nil && value.ExpiresAt.Before(*cutoff) {
-			count += 1
+	now := time.Now().UTC()
+	for key, config := range c.CacheConfig.Configs {
+		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
+		for fullkey, value := range c.Store {
+			if strings.HasPrefix(fullkey, key+":") && value.Timestamp.Before(cutoff) {
+				count += 1
+			}
 		}
 	}
 	return count
