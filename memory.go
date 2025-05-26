@@ -1,130 +1,114 @@
 package cachefunk
 
 import (
+	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 )
 
-type InMemoryCacheEntry struct {
-	Data         string
-	Timestamp    time.Time
-	IsCompressed bool
+type InMemoryStorageEntry struct {
+	Data            []byte
+	Timestamp       time.Time
+	CompressionType string
 }
 
-type InMemoryCache struct {
-	CacheConfig       *CacheFunkConfig
-	Store             map[string]*InMemoryCacheEntry
-	IgnoreCacheCtxKey CtxKey
+type InMemoryStorage struct {
+	Store map[string]*InMemoryStorageEntry
 }
 
-func (c *InMemoryCache) SetConfig(config *CacheFunkConfig) {
-	c.CacheConfig = config
-}
-
-func NewInMemoryCache() *InMemoryCache {
-	cache := InMemoryCache{
-		Store:             make(map[string]*InMemoryCacheEntry, 0),
-		IgnoreCacheCtxKey: DEFAULT_IGNORE_CACHE_CTX_KEY,
+func NewInMemoryStorage() *InMemoryStorage {
+	cache := InMemoryStorage{
+		Store: make(map[string]*InMemoryStorageEntry, 0),
 	}
 	return &cache
 }
 
-func (c *InMemoryCache) GetIgnoreCacheCtxKey() CtxKey {
-	return c.IgnoreCacheCtxKey
-}
-
-func (c *InMemoryCache) Get(key string, params string) ([]byte, bool) {
+func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
 	fullKey := key + ":" + params
 	value, found := c.Store[fullKey]
 	if !found {
-		return nil, false
+		return nil, ErrEntryNotFound
 	}
+
+	if value.CompressionType != config.GetBodyCompression().String() {
+		// yes there is an entry but it has the wrong compression type
+		// so it is the same as not found
+		return nil, ErrEntryNotFound
+	}
+
 	// check if cached value has expired
-	config := c.CacheConfig.Get(key)
-	expiry := value.Timestamp.Add(time.Second * time.Duration(config.TTL))
-	if time.Now().UTC().After(expiry) {
-		delete(c.Store, fullKey)
-		return nil, false
+	if expireTime.After(value.Timestamp) {
+		// item has expired but DO NOT REMOVE THE ITEM
+		// if FallbackToExpired option set expired value
+		// will be used if retrieve function fails
+		return nil, ErrEntryExpired
 	}
 
-	data := []byte(value.Data)
-
-	if value.IsCompressed {
-		var err error
-		data, err = decompressBytes(data)
-		if err != nil {
-			return nil, false
-		}
-	}
-
-	return data, true
+	return value.Data, nil
 }
 
-func (c *InMemoryCache) Set(key string, params string, value []byte) {
-	config := c.CacheConfig.Get(key)
-	if config.TTL <= 0 {
-		return // immediately discard the entry
-	}
-
-	timestamp := time.Now().UTC()
-	if config.TTLJitter > 0 {
-		timestamp = timestamp.Add(-1 * time.Duration(config.TTLJitter) * time.Second)
-	}
-
-	if config.UseCompression {
-		var err error
-		value, err = compressBytes(value)
-		if err != nil {
-			return
-		}
-	}
-
-	c.SetRaw(key, params, value, timestamp, config.UseCompression)
-}
-
-func (c *InMemoryCache) SetRaw(key string, params string, value []byte, timestamp time.Time, isCompressed bool) {
+func (c *InMemoryStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
 	fullKey := key + ":" + params
-	c.Store[fullKey] = &InMemoryCacheEntry{
-		Data:         string(value),
-		Timestamp:    timestamp,
-		IsCompressed: isCompressed,
+
+	c.Store[fullKey] = &InMemoryStorageEntry{
+		Data:            value,
+		Timestamp:       timestamp,
+		CompressionType: config.GetBodyCompression().String(),
 	}
+	return nil
 }
 
-func (c *InMemoryCache) Clear() {
-	c.Store = make(map[string]*InMemoryCacheEntry, 0)
+func (c *InMemoryStorage) Clear() error {
+	c.Store = make(map[string]*InMemoryStorageEntry, 0)
+	return nil
 }
 
-func (c *InMemoryCache) Cleanup() {
-	now := time.Now().UTC()
-	for key, config := range c.CacheConfig.Configs {
-		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
-		var expiredKeys []string
-		for fullkey, value := range c.Store {
-			if strings.HasPrefix(fullkey, key+":") && value.Timestamp.Before(cutoff) {
-				expiredKeys = append(expiredKeys, fullkey)
-			}
+func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireTime time.Time) error {
+	var expiredKeys []string
+	for fullkey, value := range c.Store {
+		if !strings.HasPrefix(fullkey, key+":") {
+			continue
 		}
-		for _, fullkey := range expiredKeys {
-			delete(c.Store, fullkey)
+		if expireTime.After(value.Timestamp) {
+			expiredKeys = append(expiredKeys, fullkey)
 		}
 	}
+	for _, fullkey := range expiredKeys {
+		delete(c.Store, fullkey)
+	}
+	return nil
 }
 
-func (c *InMemoryCache) EntryCount() int64 {
-	return int64(len(c.Store))
+func (c *InMemoryStorage) EntryCount() (int64, error) {
+	return int64(len(c.Store)), nil
 }
 
-func (c *InMemoryCache) ExpiredEntryCount() int64 {
+func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (int64, error) {
 	var count int64 = 0
-	now := time.Now().UTC()
-	for key, config := range c.CacheConfig.Configs {
-		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
-		for fullkey, value := range c.Store {
-			if strings.HasPrefix(fullkey, key+":") && value.Timestamp.Before(cutoff) {
-				count += 1
-			}
+	for fullkey, value := range c.Store {
+		if !strings.HasPrefix(fullkey, key+":") {
+			continue
+		}
+		if expireTime.After(value.Timestamp) {
+			count += 1
 		}
 	}
-	return count
+	return count, nil
+}
+
+func (c *InMemoryStorage) Dump(n int64) {
+	var count int64
+	for fullkey, value := range c.Store {
+		if count >= n {
+			fmt.Println("...")
+			break
+		}
+		count += 1
+		fmt.Printf("fullkey=%s timestamp=%s compression_type=%s data=\n", fullkey, value.Timestamp, value.CompressionType)
+		fmt.Println(hex.Dump(value.Data))
+	}
+	if count == 0 {
+		fmt.Println("No entries")
+	}
 }

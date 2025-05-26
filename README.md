@@ -11,10 +11,13 @@ Use wrapper functions to cache function output in golang.
 - Currently supported cache adapters:
 	- any GORM-supported database
 	- in-memory caching
+	- files on disk
+- Supports custom marshal / unmarshal: json, msgpack, string
+- Supports compression: zstd, gzip, brotli
 - Configurable TTL and TTL jitter
 - Cleanup function for periodic removal of expired entries
 - Uses go generics, in IDE type checked parameters and result
-- Can ignore cached values
+- Cache can be ignored, either by boolean or by ctx key
 
 ## Getting Started
 
@@ -43,31 +46,41 @@ import (
 
 
 func main() {
-	type HelloWorldParams struct {
-		Name string
-	}
-
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect database")
 	}
 
-	cache := cachefunk.NewGORMCache(db)
+	config := cachefunk.Config{
+		Configs: {
+			"hello": {
+				TTL: 3600,
+				// TTLJitter: 0,
+				// BodyCompression: cachefunk.ZstdCompression,
+				// BodyCodec: cachefunk.JSONCodec,
+				// ParamsCodec: cachefunk.JSONCodec,
+			}
+		}
+	}
+	storage := cachefunk.NewGORMStorage(db)
+	cache := cachefunk.CacheFunk{
+		Config: config,
+		Storage: storage,
+	}
 
-    // Define a function
-	// ignoreCache is passed through if the function calls other wrapped functions.
-	// Note that the only other argument supported currently is params.
-	// This params argument can be any value (typically a struct) that can be serialized into JSON
-	// WrapString is used to wrap this function, so it must return string or []byte
-	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+	// ignoreCache is passed through to the target function for nested caching calls
+	// All other arguments are passed in as a struct (HelloWorldParams)
+	// The params argument and the return type must be serializable by the codec Marshal
+	type HelloWorldParams struct {
+		Name string
+	}
+
+	helloWorldRaw := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
 		return "Hello " + params.Name, nil
 	}
 
     // Wrap the function
-	HelloWorld := cachefunk.WrapString(helloWorld, cache, cachefunk.Config{
-		Key: "hello",
-		TTL: 3600,
-	})
+	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorldRaw)
 
 	// First call will get value from wrapped function
 	value, err := HelloWorld(false, &HelloWorldParams{
@@ -85,21 +98,32 @@ func main() {
 
 ## API
 
-- WrapString: store result as []byte
-- WrapObject: encode result as JSON and then store as []byte
-- WrapStringWithContext
-- WrapObjectWithContext
-- CacheString
-- CacheObject
-- CacheStringWithContext
-- CacheObjectWithContext
+- Wrap
+- WrapWithContext
+- Cache
+- CacheWithContext
 
+## Notes about timestamps
+
+- Timestamps store the time when the cached item was saved with jitter applied
+- It is easier to apply jitter to timestamps at save even though jitter TTL might change
+- The expire time is not stored because cache config TTL might change on subsequent runs
+- Cache items must be able to immediately expire and never expire, regardless of stored timestamp
+- Cache get calls should not expire items - only return no match in case subsequent retrieve fails
+- Expire time of 1970-01-01 00:00:00 is used for expire immediately
+- Expire time of 9999-01-01 00:00:00 is used for never expire
 
 ## Version History
 
+* 0.4.0
+	* Complete rewrite
+	* Compression and Codec methods are now per config key
+	* Removed string / object specific functions, now unified type handling
+	* Added zstd, brotli, msgpack support
+	* Added warning log, DisableWarnings and EnableWarnings function
 * 0.3.0
 	* Added disk cache
-	* Changed from storing expiry time to storing cached at time (works better with disk cache)
+	* Changed from storing expire time to timestamp when entry was cached
 	* Added gzip compression
 	* Changed CacheResult to CacheObject, CacheWithContext to CacheObjectWithContext
 	* Moved TTL configuration to cache initialization function
@@ -109,7 +133,6 @@ func main() {
 	* Created CacheResult, CacheString, CacheWithContext, CacheStringWithContext functions
 * 0.1.0
     * Initial release
-
 
 ## License
 

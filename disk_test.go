@@ -11,33 +11,46 @@ import (
 	"github.com/rohfle/cachefunk"
 )
 
-func TestDiskCache(t *testing.T) {
-	cache := cachefunk.NewDiskCache(t.TempDir())
+func TestDiskStorage(t *testing.T) {
+	config := &cachefunk.Config{}
 
-	runTestWrapString(t, cache)
+	storage := cachefunk.NewDiskStorage(t.TempDir(), nil)
+	cache := &cachefunk.CacheFunk{
+		Config:       config,
+		Storage:      storage,
+		IgnoreCtxKey: cachefunk.DEFAULT_IGNORE_CACHE_CTX_KEY,
+	}
+
+	runTestWrapWithStringResult(t, cache)
 	cache.Clear()
-	runTestWrapStringWithContext(t, cache)
+	runTestWrapWithContextAndStringResult(t, cache)
 	cache.Clear()
-	runTestWrapObject(t, cache)
+	runTestWrapWithObjectResult(t, cache)
 	cache.Clear()
-	runTestWrapObjectWithContext(t, cache)
+	runTestWrapWithContextAndObjectResult(t, cache)
 	cache.Clear()
 	runTestCacheFuncErrorsReturned(t, cache)
 	cache.Clear()
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		cache.IterateFiles(cache.BasePath, func(parent string, file fs.DirEntry) {
+		storage.IterateFiles(storage.BasePath, func(parent string, file fs.DirEntry) {
 			if _, err := file.Info(); err != nil {
 				return
 			}
-			os.Chtimes(filepath.Join(parent, file.Name()), time.Time{}, time.Unix(0, 0))
+			os.Chtimes(filepath.Join(parent, file.Name()), time.Time{}, time.Now().UTC().Add(-3600*time.Second))
 		})
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheFallBackToExpired(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
 }
 
-func ExampleDiskCache() {
+func ExampleDiskStorage() {
 	type HelloWorldParams struct {
 		Name string
 	}
@@ -46,9 +59,14 @@ func ExampleDiskCache() {
 		return "Hello " + params.Name, nil
 	}
 
-	cache := cachefunk.NewDiskCache("/path/to/cache")
+	config := &cachefunk.Config{}
+	storage := cachefunk.NewDiskStorage("/path/to/cache", cachefunk.DefaultDiskStoragePather)
+	cache := &cachefunk.CacheFunk{
+		Config:  config,
+		Storage: storage,
+	}
 
-	HelloWorld := cachefunk.WrapString(cache, "hello", helloWorld)
+	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

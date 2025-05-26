@@ -8,30 +8,43 @@ import (
 	"github.com/rohfle/cachefunk"
 )
 
-func TestInMemoryCache(t *testing.T) {
-	cache := cachefunk.NewInMemoryCache()
+func TestInMemoryStorage(t *testing.T) {
+	config := &cachefunk.Config{}
 
-	runTestWrapString(t, cache)
+	storage := cachefunk.NewInMemoryStorage()
+
+	cache := &cachefunk.CacheFunk{
+		Config:  config,
+		Storage: storage,
+	}
+
+	runTestWrapWithStringResult(t, cache)
 	cache.Clear()
-	runTestWrapStringWithContext(t, cache)
+	runTestWrapWithContextAndStringResult(t, cache)
 	cache.Clear()
-	runTestWrapObject(t, cache)
+	runTestWrapWithObjectResult(t, cache)
 	cache.Clear()
-	runTestWrapObjectWithContext(t, cache)
+	runTestWrapWithContextAndObjectResult(t, cache)
 	cache.Clear()
 	runTestCacheFuncErrorsReturned(t, cache)
 	cache.Clear()
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		for _, value := range cache.Store {
-			value.Timestamp = time.Time{}
+		for _, value := range storage.Store {
+			value.Timestamp = time.Now().UTC().Add(-3600 * time.Second)
 		}
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheFallBackToExpired(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
 }
 
-func ExampleInMemoryCache() {
+func ExampleInMemoryStorage() {
 	type HelloWorldParams struct {
 		Name string
 	}
@@ -40,9 +53,14 @@ func ExampleInMemoryCache() {
 		return "Hello " + params.Name, nil
 	}
 
-	cache := cachefunk.NewInMemoryCache()
+	config := &cachefunk.Config{}
 
-	HelloWorld := cachefunk.WrapString(cache, "hello", helloWorld)
+	cache := &cachefunk.CacheFunk{
+		Config:  config,
+		Storage: cachefunk.NewInMemoryStorage(),
+	}
+
+	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

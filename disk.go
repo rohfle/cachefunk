@@ -1,176 +1,161 @@
 package cachefunk
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-type DiskCache struct {
-	CacheConfig       *CacheFunkConfig
-	BasePath          string
-	CalculatePath     func(cacheKey string, params string) []string
-	IgnoreCacheCtxKey CtxKey
+type DiskStorage struct {
+	BasePath      string
+	CalculatePath DiskStoragePather
 }
 
-func (c *DiskCache) SetConfig(config *CacheFunkConfig) {
-	c.CacheConfig = config
-}
-
-// Returns the
-func DefaultCalculatePath(cacheKey string, params string) []string {
-	data := sha256.Sum256([]byte(params))
-	hash := base64.URLEncoding.EncodeToString(data[:])
-	return []string{cacheKey, hash[0:2], hash[2:4], hash}
-}
-
-func NewDiskCache(basePath string, calcPathFn ...func(string, string) []string) *DiskCache {
-	if len(calcPathFn) == 0 {
-		calcPathFn = append(calcPathFn, DefaultCalculatePath)
+func NewDiskStorage(basePath string, pather DiskStoragePather) *DiskStorage {
+	if pather == nil {
+		pather = DefaultDiskStoragePather
 	}
 
-	cache := DiskCache{
-		BasePath:          basePath,
-		CalculatePath:     calcPathFn[0],
-		IgnoreCacheCtxKey: DEFAULT_IGNORE_CACHE_CTX_KEY,
+	cache := DiskStorage{
+		BasePath:      basePath,
+		CalculatePath: pather,
 	}
 	return &cache
 }
 
-func (c *DiskCache) GetIgnoreCacheCtxKey() CtxKey {
-	return c.IgnoreCacheCtxKey
-}
-
-func (c *DiskCache) getCacheItemPath(cacheKey string, params string, useCompression bool) string {
+func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, params string) string {
 	bits := append([]string{c.BasePath}, c.CalculatePath(cacheKey, params)...)
 	path := filepath.Join(bits...)
-	if useCompression {
-		path += ".gz"
+	if compression := config.GetBodyCompression(); compression != NoCompression {
+		path += "." + compression.String()
 	}
 	return path
 }
 
-func (c *DiskCache) Get(key string, params string) ([]byte, bool) {
-	config := c.CacheConfig.Get(key)
-	path := c.getCacheItemPath(key, params, config.UseCompression)
+func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
+	path := c.getCacheItemPath(key, config, params)
 
 	// check if path exists
 	stat, err := os.Stat(path)
 	if err != nil {
-		return nil, false
+		if os.IsNotExist(err) {
+			return nil, ErrEntryNotFound
+		}
+		return nil, fmt.Errorf("call to os.Stat failed %q: %v", path, err)
 	}
 
-	// check if path modtime is older than ttl
-	expiry := stat.ModTime().Add(time.Second * time.Duration(config.TTL))
-	if time.Now().UTC().After(expiry) {
-		os.Remove(path)
-		return nil, false
+	if expireTime.After(stat.ModTime()) {
+		// item has expired but DO NOT REMOVE THE ITEM
+		// if FallbackToExpired option set expired value
+		// will be used if retrieve function fails
+		return nil, ErrEntryExpired
 	}
 
 	value, err := os.ReadFile(path)
 	if err != nil {
-		return nil, false
-	}
-
-	// if data is compressed, decompress before return
-	if config.UseCompression {
-		var err error
-		value, err = decompressBytes(value)
-		if err != nil {
-			return nil, false
+		if os.IsNotExist(err) {
+			return nil, ErrEntryNotFound
 		}
+		return nil, fmt.Errorf("failed to read %q: %v", path, err)
 	}
-	return value, true
+	return value, nil
 }
 
-// Set will set a cache value by its key and params
-func (c *DiskCache) Set(key string, params string, value []byte) {
-	config := c.CacheConfig.Get(key)
-	if config.TTL <= 0 {
-		return // immediately discard the entry
-	}
-
-	timestamp := time.Now().UTC()
-	if config.TTLJitter > 0 {
-		timestamp = timestamp.Add(-1 * time.Duration(config.TTLJitter) * time.Second)
-	}
-
-	if config.UseCompression {
-		var err error
-		value, err = compressBytes(value)
-		if err != nil {
-			return
-		}
-	}
-
-	c.SetRaw(key, params, value, timestamp, config.UseCompression)
-}
-
-func (c *DiskCache) SetRaw(key string, params string, value []byte, timestamp time.Time, useCompression bool) {
-	path := c.getCacheItemPath(key, params, useCompression)
+func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+	path := c.getCacheItemPath(key, config, params)
 	dirs, _ := filepath.Split(path)
-	os.MkdirAll(dirs, 0755)
-	os.WriteFile(path, value, 0644)
-	os.Chtimes(path, time.Now().UTC(), timestamp)
+	err := os.MkdirAll(dirs, 0755)
+	if err != nil {
+		return fmt.Errorf("call to os.MkdirAll failed %+v: %v", dirs, err)
+	}
+	err = os.WriteFile(path, value, 0644)
+	if err != nil {
+		return fmt.Errorf("call to os.WriteFile failed %q: %v", path, err)
+	}
+	err = os.Chtimes(path, time.Now().UTC(), timestamp)
+	if err != nil {
+		return fmt.Errorf("call to os.Chtimes failed %q: %v", path, err)
+	}
+	return nil
 }
 
 // Clear will delete all cache entries
-func (c *DiskCache) Clear() {
-	os.RemoveAll(c.BasePath)
-	os.Mkdir(c.BasePath, 0755)
+func (c *DiskStorage) Clear() error {
+	err := os.RemoveAll(c.BasePath)
+	if err != nil {
+		return fmt.Errorf("failed to clear cache %q: when removing files: %v", c.BasePath, err)
+	}
+	err = os.Mkdir(c.BasePath, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to clear cache %q: when recreating directory: %v", c.BasePath, err)
+	}
+	return nil
 }
 
 // Cleanup will delete all cache entries that have expired
-func (c *DiskCache) Cleanup() {
-	now := time.Now().UTC()
-	for key, config := range c.CacheConfig.Configs {
-		basePath := filepath.Join(c.BasePath, key)
-		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
-		c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
-			if info, err := file.Info(); err == nil {
-				if info.ModTime().Before(cutoff) {
-					os.Remove(filepath.Join(parent, file.Name()))
-				}
-			}
-		})
+func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireTime time.Time) error {
+	basePath := filepath.Join(c.BasePath, key)
+	if _, err := os.Stat(basePath); os.IsNotExist(err) {
+		return nil // key doesnt exist therefore nothing to do
 	}
+	c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
+		path := filepath.Join(parent, file.Name())
+		info, err := file.Info()
+		if err != nil {
+			warning("skipping %q: failed to get info: %v", path, err)
+			return
+		}
+
+		if expireTime.After(info.ModTime()) {
+			err := os.Remove(path)
+			if err != nil {
+				warning("skipping %q: file cleanup failed: %v", path, err)
+			}
+		}
+	})
+	return nil
 }
 
-func (c *DiskCache) EntryCount() int64 {
+func (c *DiskStorage) EntryCount() (int64, error) {
 	var count int64
 	c.IterateFiles(c.BasePath, func(parent string, file fs.DirEntry) {
 		count += 1
 	})
-	return count
+	return count, nil
 }
 
-func (c *DiskCache) ExpiredEntryCount() int64 {
+func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (int64, error) {
 	var count int64
-	now := time.Now().UTC()
-	for key, config := range c.CacheConfig.Configs {
-		basePath := filepath.Join(c.BasePath, key)
-		cutoff := now.Add(-1 * time.Duration(config.TTL) * time.Second)
-		c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
-			if info, err := file.Info(); err == nil {
-				if info.ModTime().Before(cutoff) {
-					count += 1
-				}
-			}
-		})
+	basePath := filepath.Join(c.BasePath, key)
+	if _, err := os.Stat(basePath); os.IsNotExist(err) {
+		return 0, nil // key doesnt exist therefore count is 0
 	}
-	return count
+	c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
+		path := filepath.Join(parent, file.Name())
+		info, err := file.Info()
+		if err != nil {
+			warning("skipping %q: failed to get info: %v", path, err)
+			return
+		}
+
+		if expireTime.After(info.ModTime()) {
+			count += 1
+		}
+	})
+	return count, nil
 }
 
-func (c *DiskCache) IterateFiles(basePath string, callback func(string, fs.DirEntry)) {
+func (c *DiskStorage) IterateFiles(basePath string, callback func(string, fs.DirEntry)) {
 	dirsLeft := []string{basePath}
 	var curDir string
 	for len(dirsLeft) > 0 {
 		curDir, dirsLeft = dirsLeft[0], dirsLeft[1:]
 		entries, err := os.ReadDir(curDir)
 		if err != nil {
+			warning("skipping %q: failed to read directory: %v", curDir, err)
 			continue
 		}
 
@@ -181,5 +166,36 @@ func (c *DiskCache) IterateFiles(basePath string, callback func(string, fs.DirEn
 				callback(curDir, entry)
 			}
 		}
+	}
+}
+
+func (c *DiskStorage) Dump(n int64) {
+	var count int64
+	basePath := c.BasePath
+	if _, err := os.Stat(basePath); !os.IsNotExist(err) {
+		c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
+			if count == n {
+				fmt.Println("...")
+			}
+			count += 1
+			if count > n {
+				return
+			}
+			path := filepath.Join(parent, file.Name())
+			info, err := file.Info()
+			if err != nil {
+				warning("skipping %q: failed to get info: %v", path, err)
+				return
+			}
+			fmt.Printf("path=%s timestamp=%s data=\n", path, info.ModTime())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Println("Error:", err)
+			}
+			fmt.Println(hex.Dump(data))
+		})
+	}
+	if count == 0 {
+		fmt.Println("No entries")
 	}
 }

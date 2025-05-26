@@ -16,34 +16,49 @@ type HelloWorldParams struct {
 	Age  int64
 }
 
-func TestGORMCache(t *testing.T) {
+func TestGORMStorage(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal("failed to connect database")
 	}
 
-	cache := cachefunk.NewGORMCache(db)
-	runTestWrapString(t, cache)
+	config := &cachefunk.Config{}
+	storage, err := cachefunk.NewGORMStorage(db)
+	if err != nil {
+		t.Fatal("failed to setup gorm cache storage")
+	}
+	cache := &cachefunk.CacheFunk{
+		Config:  config,
+		Storage: storage,
+	}
+
+	runTestWrapWithStringResult(t, cache)
 	cache.Clear()
-	runTestWrapStringWithContext(t, cache)
+	runTestWrapWithContextAndStringResult(t, cache)
 	cache.Clear()
-	runTestWrapObject(t, cache)
+	runTestWrapWithObjectResult(t, cache)
 	cache.Clear()
-	runTestWrapObjectWithContext(t, cache)
+	runTestWrapWithContextAndObjectResult(t, cache)
 	cache.Clear()
 	runTestCacheFuncErrorsReturned(t, cache)
 	cache.Clear()
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		cache.DB.Model(cachefunk.CacheEntry{}).Where("1=1").Update("timestamp", time.Time{})
+		db.Model(cachefunk.CacheEntry{}).Where("1=1").Update("timestamp", time.Now().UTC().Add(-3600*time.Second))
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
 	cache.Clear()
 	runTestCachePoisoning(t, cache)
+	cache.Clear()
+	runTestCacheFallBackToExpired(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
 }
 
-func ExampleGORMCache() {
+func ExampleGORMStorage() {
 	type HelloWorldParams struct {
 		Name string
 	}
@@ -57,9 +72,17 @@ func ExampleGORMCache() {
 		panic("failed to connect database")
 	}
 
-	cache := cachefunk.NewGORMCache(db)
+	config := &cachefunk.Config{}
+	storage, err := cachefunk.NewGORMStorage(db)
+	if err != nil {
+		panic("failed to setup gorm cache storage")
+	}
+	cache := &cachefunk.CacheFunk{
+		Config:  config,
+		Storage: storage,
+	}
 
-	HelloWorld := cachefunk.WrapString(cache, "hello", helloWorld)
+	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}
