@@ -1,3 +1,4 @@
+// Package cachefunk provides caching wrappers for functions
 package cachefunk
 
 import (
@@ -14,7 +15,7 @@ var (
 
 type CtxKey string
 
-const DEFAULT_IGNORE_CACHE_CTX_KEY CtxKey = "ignoreCache"
+const DefaultIgnoreCacheCtxKey CtxKey = "ignoreCache"
 
 type CacheFunk struct {
 	Config       *Config
@@ -24,7 +25,7 @@ type CacheFunk struct {
 
 func (c *CacheFunk) GetIgnoreCtxKey() CtxKey {
 	if c.IgnoreCtxKey == "" {
-		return DEFAULT_IGNORE_CACHE_CTX_KEY
+		return DefaultIgnoreCacheCtxKey
 	}
 	return c.IgnoreCtxKey
 }
@@ -49,7 +50,7 @@ type CacheStorage interface {
 func (c *CacheFunk) Get(key string, config *KeyConfig, params string, ignoreExpireTime bool, value any) error {
 	var expireTime time.Time
 	if ignoreExpireTime {
-		expireTime = CACHEFUNK_MIN_DATE
+		expireTime = MinDate
 	} else {
 		now := time.Now().UTC()
 		expireTime = config.GetExpireTime(now)
@@ -73,7 +74,7 @@ func (c *CacheFunk) Get(key string, config *KeyConfig, params string, ignoreExpi
 }
 
 func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any) error {
-	if config.TTL == IMMEDIATELY_EXPIRES {
+	if config.TTL == TTLEntryImmediatelyExpires {
 		return nil // discard the entry - do not cache
 	}
 
@@ -100,7 +101,7 @@ func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 	var count int64
 	now := time.Now().UTC()
 	for key, config := range c.Config.Configs {
-		if config.TTL == NEVER_EXPIRES {
+		if config.TTL == TTLEntryNeverExpires {
 			continue
 		}
 		expireTime := config.GetExpireTime(now)
@@ -120,7 +121,7 @@ func (c *CacheFunk) Clear() error {
 func (c *CacheFunk) Cleanup() {
 	now := time.Now().UTC()
 	for key, config := range c.Config.Configs {
-		if config.TTL == NEVER_EXPIRES {
+		if config.TTL == TTLEntryNeverExpires {
 			continue
 		}
 		expireTime := config.GetExpireTime(now)

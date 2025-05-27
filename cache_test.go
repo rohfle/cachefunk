@@ -59,7 +59,7 @@ func runTestCachePoisoning(t *testing.T, cache *cachefunk.CacheFunk) {
 
 	BadFunctionCtx := cachefunk.WrapWithContext(cache, "bad", badFunctionCtx)
 	GoodFunctionCtx := cachefunk.WrapWithContext(cache, "good", goodFunctionCtx)
-	ctx := context.WithValue(context.TODO(), cachefunk.DEFAULT_IGNORE_CACHE_CTX_KEY, true)
+	ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, true)
 
 	_, err = BadFunctionCtx(ctx, &BadParams{Bad: func() {}})
 	if err == nil {
@@ -82,7 +82,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntr
 	cache.Config = &cachefunk.Config{
 		Configs: map[string]*cachefunk.KeyConfig{
 			"noop_NoCache": {
-				TTL:             cachefunk.IMMEDIATELY_EXPIRES,
+				TTL:             cachefunk.TTLEntryImmediatelyExpires,
 				TTLJitter:       0,
 				BodyCodec:       cachefunk.StringCodec,
 				BodyCompression: cachefunk.NoCompression,
@@ -112,7 +112,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntr
 				BodyCompression: cachefunk.NoCompression,
 			},
 			"noop_CacheTTLForever": {
-				TTL:             cachefunk.NEVER_EXPIRES,
+				TTL:             cachefunk.TTLEntryNeverExpires,
 				TTLJitter:       1,
 				BodyCodec:       cachefunk.StringCodec,
 				BodyCompression: cachefunk.NoCompression,
@@ -570,7 +570,7 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *cachefunk.CacheF
 		{true, "Bob", 42, "Hello Bob, you are 42", nil, 4},
 	}
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), cachefunk.DEFAULT_IGNORE_CACHE_CTX_KEY, tc.ignoreCache)
+		ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld(ctx, &HelloWorldParams{
 			Name: tc.name,
@@ -783,7 +783,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheF
 	}
 
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), cachefunk.DEFAULT_IGNORE_CACHE_CTX_KEY, tc.ignoreCache)
+		ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld(ctx, tc.params)
 
@@ -829,7 +829,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheF
 	}
 
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), cachefunk.DEFAULT_IGNORE_CACHE_CTX_KEY, tc.ignoreCache)
+		ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld2(ctx, tc.params)
 

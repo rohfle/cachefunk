@@ -21,12 +21,10 @@ func SetWarningLog(logger *log.Logger) {
 	}
 }
 
-// Disable warnings
 func DisableWarnings() {
 	warningLogger = log.New(io.Discard, "", 0)
 }
 
-// Enable warnings
 func EnableWarnings() {
 	warningLogger = log.New(os.Stdout, "WARNING: ", log.LstdFlags)
 }

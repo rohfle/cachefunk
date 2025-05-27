@@ -18,7 +18,7 @@ func TestDiskStorage(t *testing.T) {
 	cache := &cachefunk.CacheFunk{
 		Config:       config,
 		Storage:      storage,
-		IgnoreCtxKey: cachefunk.DEFAULT_IGNORE_CACHE_CTX_KEY,
+		IgnoreCtxKey: cachefunk.DefaultIgnoreCacheCtxKey,
 	}
 
 	runTestWrapWithStringResult(t, cache)

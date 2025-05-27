@@ -13,6 +13,7 @@ type InMemoryStorageEntry struct {
 	CompressionType string
 }
 
+// InMemoryStorage stores cache entries in a map
 type InMemoryStorage struct {
 	Store map[string]*InMemoryStorageEntry
 }

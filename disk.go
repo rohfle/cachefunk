@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// DiskStorage stores cached items on disk in a tree of folders
 type DiskStorage struct {
 	BasePath      string
 	CalculatePath DiskStoragePather

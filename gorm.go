@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// GORMStorage stores cached items in a database table
 type GORMStorage struct {
 	DB *gorm.DB
 }
@@ -67,7 +68,6 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireTi
 	return value, nil
 }
 
-// SetRaw will set a cache value by its key and params
 func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
 	cacheEntry := CacheEntry{
 		Key:             key,
