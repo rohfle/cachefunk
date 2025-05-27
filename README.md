@@ -56,9 +56,10 @@ func main() {
 			"hello": {
 				TTL: 3600,
 				// TTLJitter: 0,
+				// FallbackToExpired: false,
 				// BodyCompression: cachefunk.ZstdCompression,
 				// BodyCodec: cachefunk.JSONCodec,
-				// ParamsCodec: cachefunk.JSONCodec,
+				// ParamsCodec: cachefunk.JSONParams,
 			}
 		}
 	}
@@ -110,12 +111,13 @@ func main() {
 - The expire time is not stored because cache config TTL might change on subsequent runs
 - Cache items must be able to immediately expire and never expire, regardless of stored timestamp
 - Cache get calls should not expire items - only return no match in case subsequent retrieve fails
-- Expire time of 1970-01-01 00:00:00 is used for expire immediately
-- Expire time of 9999-01-01 00:00:00 is used for never expire
+- Any entry with a timestamp before the expire time is said to have expired
+- A `TTL` of `0` or `TTLEntryImmediatelyExpires` is used for immediate expiry (`MaxTime`, 9999-01-01)
+- A `TTL` of `-1` or `TTLEntryNeverExpires` is used for no expiry  (`MinTime`, 1970-01-01)
 
 ## Version History
 
-* 0.4.0
+* HEAD
 	* Complete rewrite
 	* Compression and Codec methods are now per config key
 	* Removed string / object specific functions, now unified type handling
@@ -136,6 +138,6 @@ func main() {
 
 ## License
 
-© Rohan Fletcher 2023
+© Rohan Fletcher 2025
 
 This project is licensed under the MIT License - see the LICENSE file for details

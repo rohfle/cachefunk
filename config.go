@@ -116,8 +116,8 @@ type keyConfigRaw struct {
 }
 
 // GetExpireTime calculates an expire time from the key config
-// any entry with timestamp that is before the expire time has expired
 // within reasonable bounds for modern filesystems (as of year 2017)
+// any entry with timestamp before the expire time is said to have expired
 func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	if kc.TTL == TTLEntryImmediatelyExpires {
 		// expireTime will always be after timestamp therefore everything expires immediately
