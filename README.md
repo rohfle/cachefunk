@@ -80,7 +80,7 @@ func main() {
 		return "Hello " + params.Name, nil
 	}
 
-    // Wrap the function
+	// Wrap the function
 	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorldRaw)
 
 	// First call will get value from wrapped function
