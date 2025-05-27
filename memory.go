@@ -16,13 +16,13 @@ type InMemoryStorageEntry struct {
 
 // InMemoryStorage stores cache entries in a map
 type InMemoryStorage struct {
-	Store map[string]*InMemoryStorageEntry
+	store map[string]*InMemoryStorageEntry
 	mutex sync.RWMutex
 }
 
 func NewInMemoryStorage() *InMemoryStorage {
 	cache := InMemoryStorage{
-		Store: make(map[string]*InMemoryStorageEntry, 0),
+		store: make(map[string]*InMemoryStorageEntry, 0),
 	}
 	return &cache
 }
@@ -30,7 +30,7 @@ func NewInMemoryStorage() *InMemoryStorage {
 func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
 	fullKey := key + ":" + params
 	c.mutex.RLock()
-	value, found := c.Store[fullKey]
+	value, found := c.store[fullKey]
 	c.mutex.RUnlock()
 	if !found {
 		return nil, ErrEntryNotFound
@@ -63,27 +63,27 @@ func (c *InMemoryStorage) Set(key string, config *KeyConfig, params string, valu
 	}
 
 	c.mutex.Lock()
-	c.Store[fullKey] = entry
+	c.store[fullKey] = entry
 	c.mutex.Unlock()
 	return nil
 }
 
 func (c *InMemoryStorage) Clear() error {
 	c.mutex.Lock()
-	c.Store = make(map[string]*InMemoryStorageEntry, 0)
+	c.store = make(map[string]*InMemoryStorageEntry, 0)
 	c.mutex.Unlock()
 	return nil
 }
 
 func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireTime time.Time) error {
 	c.mutex.Lock()
-	for fullkey, value := range c.Store {
+	for fullkey, value := range c.store {
 		if !strings.HasPrefix(fullkey, key+":") {
 			continue
 		}
 		if expireTime.After(value.Timestamp) {
 			// its safe to delete from maps during a range loop
-			delete(c.Store, fullkey)
+			delete(c.store, fullkey)
 		}
 	}
 	c.mutex.Unlock()
@@ -92,7 +92,7 @@ func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireTime time
 
 func (c *InMemoryStorage) EntryCount() (int64, error) {
 	c.mutex.RLock()
-	count := len(c.Store)
+	count := len(c.store)
 	c.mutex.RUnlock()
 	return int64(count), nil
 }
@@ -100,7 +100,7 @@ func (c *InMemoryStorage) EntryCount() (int64, error) {
 func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (int64, error) {
 	var count int64 = 0
 	c.mutex.RLock()
-	for fullkey, value := range c.Store {
+	for fullkey, value := range c.store {
 		if !strings.HasPrefix(fullkey, key+":") {
 			continue
 		}
@@ -115,7 +115,7 @@ func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expir
 func (c *InMemoryStorage) Dump(n int64) {
 	var count int64
 	c.mutex.RLock()
-	for fullkey, value := range c.Store {
+	for fullkey, value := range c.store {
 		if count >= n {
 			fmt.Println("...")
 			break

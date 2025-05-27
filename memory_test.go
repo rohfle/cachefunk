@@ -29,7 +29,7 @@ func TestInMemoryStorage(t *testing.T) {
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		for _, value := range storage.Store {
+		for _, value := range storage.store {
 			value.Timestamp = time.Now().UTC().Add(-3600 * time.Second)
 		}
 	}
