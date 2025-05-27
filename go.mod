@@ -1,12 +1,15 @@
 module github.com/rohfle/cachefunk
 
-go 1.22
+go 1.23.0
 
 toolchain go1.23.5
 
-require gorm.io/gorm v1.24.5
+require gorm.io/gorm v1.30.0
 
-require github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+require (
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
+)
 
 require (
 	github.com/andybalholm/brotli v1.1.1
