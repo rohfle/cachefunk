@@ -1,11 +1,9 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/rohfle/cachefunk"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -22,12 +20,12 @@ func TestGORMStorage(t *testing.T) {
 		t.Fatal("failed to connect database")
 	}
 
-	config := &cachefunk.Config{}
-	storage, err := cachefunk.NewGORMStorage(db)
+	config := &Config{}
+	storage, err := NewGORMStorage(db)
 	if err != nil {
 		t.Fatal("failed to setup gorm cache storage")
 	}
-	cache := &cachefunk.CacheFunk{
+	cache := &CacheFunk{
 		Config:  config,
 		Storage: storage,
 	}
@@ -45,7 +43,7 @@ func TestGORMStorage(t *testing.T) {
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		db.Model(cachefunk.CacheEntry{}).Where("1=1").Update("timestamp", time.Now().UTC().Add(-3600*time.Second))
+		db.Model(CacheEntry{}).Where("1=1").Update("timestamp", time.Now().UTC().Add(-3600*time.Second))
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
 	cache.Clear()
@@ -72,17 +70,17 @@ func ExampleGORMStorage() {
 		panic("failed to connect database")
 	}
 
-	config := &cachefunk.Config{}
-	storage, err := cachefunk.NewGORMStorage(db)
+	config := &Config{}
+	storage, err := NewGORMStorage(db)
 	if err != nil {
 		panic("failed to setup gorm cache storage")
 	}
-	cache := &cachefunk.CacheFunk{
+	cache := &CacheFunk{
 		Config:  config,
 		Storage: storage,
 	}
 
-	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorld)
+	HelloWorld := Wrap(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

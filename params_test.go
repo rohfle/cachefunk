@@ -1,17 +1,15 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestParams(t *testing.T) {
-	var codecs = []cachefunk.ParamCodec{
-		cachefunk.JSONParams,
-		cachefunk.JSONBase64Params,
+	var codecs = []ParamCodec{
+		JSONParams,
+		JSONBase64Params,
 	}
 
 	type AAA struct {

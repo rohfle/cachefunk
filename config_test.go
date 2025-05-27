@@ -1,59 +1,57 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestConfigIncomplete(t *testing.T) {
-	var config cachefunk.Config
+	var config Config
 
 	result := config.Get("doesnotexist")
 
-	if result != cachefunk.DefaultKeyConfig {
+	if result != DefaultKeyConfig {
 		t.Fatalf("expected non-existent key to resolve to DefaultKeyConfig but got %+v instead (type=%T)", result, result)
 	}
 
 }
 
 func TestConfigMarshalUnmarshal(t *testing.T) {
-	var config = cachefunk.Config{
-		Defaults: &cachefunk.KeyConfig{TTL: 1},
-		Configs: map[string]*cachefunk.KeyConfig{
+	var config = Config{
+		Defaults: &KeyConfig{TTL: 1},
+		Configs: map[string]*KeyConfig{
 			"test": {TTL: 1},
 			"test1": {
 				TTL:               1,
 				TTLJitter:         1,
 				FallbackToExpired: true,
-				BodyCodec:         cachefunk.JSONCodec,
-				BodyCompression:   cachefunk.GzipCompression,
-				ParamCodec:        cachefunk.JSONParams,
+				BodyCodec:         JSONCodec,
+				BodyCompression:   GzipCompression,
+				ParamCodec:        JSONParams,
 			},
 			"test2": {
 				TTL:               1,
 				TTLJitter:         1,
 				FallbackToExpired: true,
-				BodyCodec:         cachefunk.MsgPackCodec,
-				BodyCompression:   cachefunk.ZstdCompression,
-				ParamCodec:        cachefunk.JSONBase64Params,
+				BodyCodec:         MsgPackCodec,
+				BodyCompression:   ZstdCompression,
+				ParamCodec:        JSONBase64Params,
 			},
 			"test3": {
 				TTL:               1,
 				TTLJitter:         1,
 				FallbackToExpired: true,
-				BodyCodec:         cachefunk.StringCodec,
-				BodyCompression:   cachefunk.BrotliCompression,
+				BodyCodec:         StringCodec,
+				BodyCompression:   BrotliCompression,
 			},
 			"test4": {
 				TTL:               1,
 				TTLJitter:         1,
 				FallbackToExpired: true,
-				BodyCodec:         cachefunk.StringCodec,
-				BodyCompression:   cachefunk.NoCompression,
+				BodyCodec:         StringCodec,
+				BodyCompression:   NoCompression,
 			},
 		},
 	}
@@ -63,7 +61,7 @@ func TestConfigMarshalUnmarshal(t *testing.T) {
 		t.Fatal("error while marshaling cachefunk config:", err)
 	}
 
-	var otherConfig cachefunk.Config
+	var otherConfig Config
 
 	err = json.Unmarshal(data, &otherConfig)
 	if err != nil {

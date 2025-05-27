@@ -1,4 +1,4 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"context"
@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/rohfle/cachefunk"
 )
 
-func runTestCachePoisoning(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"bad":  {TTL: 1},
 			"good": {TTL: 1},
 		},
@@ -31,8 +29,8 @@ func runTestCachePoisoning(t *testing.T, cache *cachefunk.CacheFunk) {
 		return "", nil
 	}
 
-	BadFunction := cachefunk.Wrap(cache, "bad", badFunction)
-	GoodFunction := cachefunk.Wrap(cache, "good", goodFunction)
+	BadFunction := Wrap(cache, "bad", badFunction)
+	GoodFunction := Wrap(cache, "good", goodFunction)
 
 	_, err := BadFunction(false, &BadParams{Bad: func() {}})
 	if err == nil {
@@ -57,9 +55,9 @@ func runTestCachePoisoning(t *testing.T, cache *cachefunk.CacheFunk) {
 		return "", nil
 	}
 
-	BadFunctionCtx := cachefunk.WrapWithContext(cache, "bad", badFunctionCtx)
-	GoodFunctionCtx := cachefunk.WrapWithContext(cache, "good", goodFunctionCtx)
-	ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, true)
+	BadFunctionCtx := WrapWithContext(cache, "bad", badFunctionCtx)
+	GoodFunctionCtx := WrapWithContext(cache, "good", goodFunctionCtx)
+	ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, true)
 
 	_, err = BadFunctionCtx(ctx, &BadParams{Bad: func() {}})
 	if err == nil {
@@ -78,44 +76,44 @@ func runTestCachePoisoning(t *testing.T, cache *cachefunk.CacheFunk) {
 
 }
 
-func runTestCacheFuncTTL(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntries func()) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"noop_NoCache": {
-				TTL:             cachefunk.TTLEntryImmediatelyExpires,
+				TTL:             TTLEntryImmediatelyExpires,
 				TTLJitter:       0,
-				BodyCodec:       cachefunk.StringCodec,
-				BodyCompression: cachefunk.NoCompression,
+				BodyCodec:       StringCodec,
+				BodyCompression: NoCompression,
 			},
 			"noop_CacheTTL": {
 				TTL:             1,
 				TTLJitter:       0,
-				BodyCodec:       cachefunk.StringCodec,
-				BodyCompression: cachefunk.NoCompression,
+				BodyCodec:       StringCodec,
+				BodyCompression: NoCompression,
 			},
 			"noop_CacheTTLWithJitter": {
 				TTL:             30,
 				TTLJitter:       1,
-				BodyCodec:       cachefunk.StringCodec,
-				BodyCompression: cachefunk.NoCompression,
+				BodyCodec:       StringCodec,
+				BodyCompression: NoCompression,
 			},
 			"noop_CacheTTLNegative": {
 				TTL:             -2121,
 				TTLJitter:       1,
-				BodyCodec:       cachefunk.StringCodec,
-				BodyCompression: cachefunk.NoCompression,
+				BodyCodec:       StringCodec,
+				BodyCompression: NoCompression,
 			},
 			"noop_CacheTTLHuge": {
 				TTL:             9223370000,
 				TTLJitter:       1,
-				BodyCodec:       cachefunk.StringCodec,
-				BodyCompression: cachefunk.NoCompression,
+				BodyCodec:       StringCodec,
+				BodyCompression: NoCompression,
 			},
 			"noop_CacheTTLForever": {
-				TTL:             cachefunk.TTLEntryNeverExpires,
+				TTL:             TTLEntryNeverExpires,
 				TTLJitter:       1,
-				BodyCodec:       cachefunk.StringCodec,
-				BodyCompression: cachefunk.NoCompression,
+				BodyCodec:       StringCodec,
+				BodyCompression: NoCompression,
 			},
 		},
 	}
@@ -126,12 +124,12 @@ func runTestCacheFuncTTL(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntr
 		return []byte{}, nil
 	}
 
-	CacheTTL := cachefunk.Wrap(cache, "noop_CacheTTL", noop)
-	NoCache := cachefunk.Wrap(cache, "noop_NoCache", noop)
-	CacheTTLWithJitter := cachefunk.Wrap(cache, "noop_CacheTTLWithJitter", noop)
-	CacheTTLNegative := cachefunk.Wrap(cache, "noop_CacheTTLNegative", noop)
-	CacheTTLHuge := cachefunk.Wrap(cache, "noop_CacheTTLHuge", noop)
-	CacheTTLForever := cachefunk.Wrap(cache, "noop_CacheTTLForever", noop)
+	CacheTTL := Wrap(cache, "noop_CacheTTL", noop)
+	NoCache := Wrap(cache, "noop_NoCache", noop)
+	CacheTTLWithJitter := Wrap(cache, "noop_CacheTTLWithJitter", noop)
+	CacheTTLNegative := Wrap(cache, "noop_CacheTTLNegative", noop)
+	CacheTTLHuge := Wrap(cache, "noop_CacheTTLHuge", noop)
+	CacheTTLForever := Wrap(cache, "noop_CacheTTLForever", noop)
 
 	testCases := []struct {
 		key                     string
@@ -212,10 +210,10 @@ func runTestCacheFuncTTL(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntr
 
 }
 
-func runTestCacheMismatchCompressionType(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntries func()) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
-			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true, BodyCompression: cachefunk.GzipCompression},
+func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
+			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true, BodyCompression: GzipCompression},
 		},
 	}
 
@@ -225,7 +223,7 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *cachefunk.CacheFun
 		return "hello world", nil
 	}
 
-	CacheTTL := cachefunk.Wrap(cache, "hello_CacheTTL", helloRaw)
+	CacheTTL := Wrap(cache, "hello_CacheTTL", helloRaw)
 
 	// Test TTL=1 no jitter
 	firstValue, err := CacheTTL(false, nil)
@@ -241,10 +239,10 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *cachefunk.CacheFun
 		t.Fatal("expected 1 cache entries after CacheTTL() but got", count)
 	}
 
-	cache.Config.Configs["hello_CacheTTL"] = &cachefunk.KeyConfig{
+	cache.Config.Configs["hello_CacheTTL"] = &KeyConfig{
 		TTL:             1,
 		TTLJitter:       0,
-		BodyCompression: cachefunk.NoCompression,
+		BodyCompression: NoCompression,
 	}
 
 	secondValue, err := CacheTTL(false, nil)
@@ -260,9 +258,9 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *cachefunk.CacheFun
 	cache.Clear()
 }
 
-func runTestCacheFallBackToExpired(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntries func()) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true},
 		},
 	}
@@ -277,7 +275,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *cachefunk.CacheFunk, exp
 		}
 	}
 
-	CacheTTL := cachefunk.Wrap(cache, "hello_CacheTTL", helloRaw)
+	CacheTTL := Wrap(cache, "hello_CacheTTL", helloRaw)
 
 	// Test TTL=1 no jitter
 	firstValue, err := CacheTTL(false, nil)
@@ -305,9 +303,9 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *cachefunk.CacheFunk, exp
 	// Expire entries so we don't have to wait
 	expireAllEntries()
 	// Call again, this time it will fail
-	cachefunk.DisableWarnings()
+	DisableWarnings()
 	secondValue, err := CacheTTL(false, nil)
-	cachefunk.EnableWarnings()
+	EnableWarnings()
 	if err != nil {
 		t.Fatal("unexpected error on second call to CacheTTL:", err)
 	}
@@ -332,9 +330,9 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *cachefunk.CacheFunk, exp
 	}
 }
 
-func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *cachefunk.CacheFunk, expireAllEntries func()) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true},
 		},
 	}
@@ -349,7 +347,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *cachefunk.Cac
 		}
 	}
 
-	CacheTTL := cachefunk.WrapWithContext(cache, "hello_CacheTTL", helloRaw)
+	CacheTTL := WrapWithContext(cache, "hello_CacheTTL", helloRaw)
 
 	// Test TTL=1 no jitter
 	firstValue, err := CacheTTL(context.TODO(), nil)
@@ -377,9 +375,9 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *cachefunk.Cac
 	// Expire entries so we don't have to wait
 	expireAllEntries()
 	// Call again, this time it will fail
-	cachefunk.DisableWarnings()
+	DisableWarnings()
 	secondValue, err := CacheTTL(context.TODO(), nil)
-	cachefunk.EnableWarnings()
+	EnableWarnings()
 	if err != nil {
 		t.Fatal("unexpected error on second call to CacheTTL:", err)
 	}
@@ -404,9 +402,9 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *cachefunk.Cac
 	}
 }
 
-func runTestCacheFuncErrorsReturned(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"failWorld": {TTL: 5, TTLJitter: 1},
 		},
 	}
@@ -415,7 +413,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *cachefunk.CacheFunk) {
 		return "", errors.New("oh no")
 	}
 
-	FailWorldString := cachefunk.Wrap(cache, "failWorld", failWorld)
+	FailWorldString := Wrap(cache, "failWorld", failWorld)
 
 	if _, err := FailWorldString(false, nil); err == nil {
 		t.Fatal("expected an error but got nil")
@@ -429,7 +427,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *cachefunk.CacheFunk) {
 		t.Fatal("expected 0 cache entries but got", count)
 	}
 
-	FailWorldJSON := cachefunk.Wrap(cache, "failWorld", failWorld)
+	FailWorldJSON := Wrap(cache, "failWorld", failWorld)
 
 	if _, err := FailWorldJSON(false, nil); err == nil {
 		t.Fatal("expected an error but got nil")
@@ -444,9 +442,9 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *cachefunk.CacheFunk) {
 	}
 }
 
-func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"failWorld": {TTL: 5, TTLJitter: 1},
 		},
 	}
@@ -455,7 +453,7 @@ func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *cachefunk.Ca
 		return "", errors.New("oh no")
 	}
 
-	FailWorldString := cachefunk.WrapWithContext(cache, "failWorld", failWorld)
+	FailWorldString := WrapWithContext(cache, "failWorld", failWorld)
 
 	if _, err := FailWorldString(context.TODO(), nil); err == nil {
 		t.Fatal("expected an error but got nil")
@@ -469,7 +467,7 @@ func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *cachefunk.Ca
 		t.Fatal("expected 0 cache entries but got", count)
 	}
 
-	FailWorldJSON := cachefunk.WrapWithContext(cache, "failWorld", failWorld)
+	FailWorldJSON := WrapWithContext(cache, "failWorld", failWorld)
 
 	if _, err := FailWorldJSON(context.TODO(), nil); err == nil {
 		t.Fatal("expected an error but got nil")
@@ -484,10 +482,10 @@ func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *cachefunk.Ca
 	}
 }
 
-func runTestWrapWithStringResult(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
-			"helloWorld": {TTL: 5, TTLJitter: 1, BodyCompression: cachefunk.NoCompression},
+func runTestWrapWithStringResult(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
+			"helloWorld": {TTL: 5, TTLJitter: 1, BodyCompression: NoCompression},
 		},
 	}
 
@@ -498,7 +496,7 @@ func runTestWrapWithStringResult(t *testing.T, cache *cachefunk.CacheFunk) {
 		return s, nil
 	}
 
-	HelloWorld := cachefunk.Wrap(cache, "helloWorld", helloWorld)
+	HelloWorld := Wrap(cache, "helloWorld", helloWorld)
 
 	testCases := []struct {
 		ignoreCache bool
@@ -539,9 +537,9 @@ func runTestWrapWithStringResult(t *testing.T, cache *cachefunk.CacheFunk) {
 	}
 }
 
-func runTestWrapWithContextAndStringResult(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestWrapWithContextAndStringResult(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"helloWorld": {TTL: 5, TTLJitter: 1},
 		},
 	}
@@ -553,7 +551,7 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *cachefunk.CacheF
 		return s, nil
 	}
 
-	HelloWorld := cachefunk.WrapWithContext(cache, "helloWorld", helloWorld)
+	HelloWorld := WrapWithContext(cache, "helloWorld", helloWorld)
 
 	testCases := []struct {
 		ignoreCache bool
@@ -570,7 +568,7 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *cachefunk.CacheF
 		{true, "Bob", 42, "Hello Bob, you are 42", nil, 4},
 	}
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, tc.ignoreCache)
+		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld(ctx, &HelloWorldParams{
 			Name: tc.name,
@@ -595,21 +593,21 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *cachefunk.CacheF
 	}
 }
 
-func runTestWrapWithObjectResult(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestWrapWithObjectResult(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Configs: map[string]*KeyConfig{
 			"helloWorld": {
 				TTL:             5,
 				TTLJitter:       1,
-				BodyCodec:       cachefunk.MsgPackCodec,
-				BodyCompression: cachefunk.BrotliCompression,
-				ParamCodec:      cachefunk.JSONBase64Params,
+				BodyCodec:       MsgPackCodec,
+				BodyCompression: BrotliCompression,
+				ParamCodec:      JSONBase64Params,
 			},
 			"helloWorld2": {
 				TTL:             5,
-				BodyCodec:       cachefunk.JSONCodec,
-				BodyCompression: cachefunk.GzipCompression,
-				ParamCodec:      cachefunk.JSONParams,
+				BodyCodec:       JSONCodec,
+				BodyCompression: GzipCompression,
+				ParamCodec:      JSONParams,
 			},
 		},
 	}
@@ -631,7 +629,7 @@ func runTestWrapWithObjectResult(t *testing.T, cache *cachefunk.CacheFunk) {
 		}, nil
 	}
 
-	HelloWorld := cachefunk.Wrap(cache, "helloWorld", helloWorld)
+	HelloWorld := Wrap(cache, "helloWorld", helloWorld)
 
 	testCases := []struct {
 		ignoreCache bool
@@ -677,7 +675,7 @@ func runTestWrapWithObjectResult(t *testing.T, cache *cachefunk.CacheFunk) {
 
 	cache.Storage.Dump(1)
 
-	HelloWorld2 := cachefunk.Wrap(cache, "helloWorld2", helloWorld)
+	HelloWorld2 := Wrap(cache, "helloWorld2", helloWorld)
 
 	testCases = []struct {
 		ignoreCache bool
@@ -723,9 +721,9 @@ func runTestWrapWithObjectResult(t *testing.T, cache *cachefunk.CacheFunk) {
 	}
 	raw, _ := json.Marshal(doctoredResult)
 	cache.Storage.Set("helloWorld2", keyConfig, paramsRendered, raw, keyConfig.GetTimestamp(time.Now().UTC()))
-	cachefunk.DisableWarnings()
+	DisableWarnings()
 	result, err := HelloWorld2(false, params)
-	cachefunk.EnableWarnings()
+	EnableWarnings()
 	if err != nil {
 		t.Errorf("testing gzip bad decompression: %s", err)
 	} else if result.Result == "something else" {
@@ -743,10 +741,10 @@ func runTestWrapWithObjectResult(t *testing.T, cache *cachefunk.CacheFunk) {
 	}
 }
 
-func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheFunk) {
-	cache.Config = &cachefunk.Config{
-		Defaults: &cachefunk.KeyConfig{TTL: 5, TTLJitter: 1},
-		Configs: map[string]*cachefunk.KeyConfig{
+func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Defaults: &KeyConfig{TTL: 5, TTLJitter: 1},
+		Configs: map[string]*KeyConfig{
 			"helloWorld": {TTL: 5, TTLJitter: 1},
 		},
 	}
@@ -766,7 +764,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheF
 		}, nil
 	}
 
-	HelloWorld := cachefunk.WrapWithContext(cache, "helloWorld", helloWorld)
+	HelloWorld := WrapWithContext(cache, "helloWorld", helloWorld)
 
 	testCases := []struct {
 		ignoreCache bool
@@ -783,7 +781,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheF
 	}
 
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, tc.ignoreCache)
+		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld(ctx, tc.params)
 
@@ -812,7 +810,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheF
 		t.Fatalf("expected 3 cached values got %d", count)
 	}
 
-	HelloWorld2 := cachefunk.WrapWithContext(cache, "helloWorld2", helloWorld)
+	HelloWorld2 := WrapWithContext(cache, "helloWorld2", helloWorld)
 
 	testCases = []struct {
 		ignoreCache bool
@@ -829,7 +827,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *cachefunk.CacheF
 	}
 
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), cachefunk.DefaultIgnoreCacheCtxKey, tc.ignoreCache)
+		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld2(ctx, tc.params)
 

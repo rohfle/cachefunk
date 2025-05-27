@@ -1,12 +1,10 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"testing"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestPather(t *testing.T) {
-	cachefunk.SHA256HexPather("thisiskey", "thisisparams")
-	cachefunk.SHA256Base64Pather("thisiskey", "thisisparams")
+	SHA256HexPather("thisiskey", "thisisparams")
+	SHA256Base64Pather("thisiskey", "thisisparams")
 }

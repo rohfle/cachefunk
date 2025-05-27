@@ -1,19 +1,17 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestInMemoryStorage(t *testing.T) {
-	config := &cachefunk.Config{}
+	config := &Config{}
 
-	storage := cachefunk.NewInMemoryStorage()
+	storage := NewInMemoryStorage()
 
-	cache := &cachefunk.CacheFunk{
+	cache := &CacheFunk{
 		Config:  config,
 		Storage: storage,
 	}
@@ -53,14 +51,14 @@ func ExampleInMemoryStorage() {
 		return "Hello " + params.Name, nil
 	}
 
-	config := &cachefunk.Config{}
+	config := &Config{}
 
-	cache := &cachefunk.CacheFunk{
+	cache := &CacheFunk{
 		Config:  config,
-		Storage: cachefunk.NewInMemoryStorage(),
+		Storage: NewInMemoryStorage(),
 	}
 
-	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorld)
+	HelloWorld := Wrap(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

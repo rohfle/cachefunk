@@ -1,13 +1,11 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"log"
 	"os"
 	"testing"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestLog(t *testing.T) {
-	cachefunk.SetWarningLog(log.New(os.Stdout, "WARNING: ", log.LstdFlags))
+	SetWarningLog(log.New(os.Stdout, "WARNING: ", log.LstdFlags))
 }

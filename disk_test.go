@@ -1,4 +1,4 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"fmt"
@@ -7,18 +7,16 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestDiskStorage(t *testing.T) {
-	config := &cachefunk.Config{}
+	config := &Config{}
 
-	storage := cachefunk.NewDiskStorage(t.TempDir(), nil)
-	cache := &cachefunk.CacheFunk{
+	storage := NewDiskStorage(t.TempDir(), nil)
+	cache := &CacheFunk{
 		Config:       config,
 		Storage:      storage,
-		IgnoreCtxKey: cachefunk.DefaultIgnoreCacheCtxKey,
+		IgnoreCtxKey: DefaultIgnoreCacheCtxKey,
 	}
 
 	runTestWrapWithStringResult(t, cache)
@@ -59,14 +57,14 @@ func ExampleDiskStorage() {
 		return "Hello " + params.Name, nil
 	}
 
-	config := &cachefunk.Config{}
-	storage := cachefunk.NewDiskStorage("/path/to/cache", cachefunk.DefaultDiskStoragePather)
-	cache := &cachefunk.CacheFunk{
+	config := &Config{}
+	storage := NewDiskStorage("/path/to/cache", DefaultDiskStoragePather)
+	cache := &CacheFunk{
 		Config:  config,
 		Storage: storage,
 	}
 
-	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorld)
+	HelloWorld := Wrap(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

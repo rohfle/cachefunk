@@ -1,17 +1,15 @@
-package cachefunk_test
+package cachefunk
 
 import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/rohfle/cachefunk"
 )
 
 func TestBodyCodecs(t *testing.T) {
-	var codecs = []cachefunk.BodyCodec{
-		cachefunk.JSONCodec,
-		cachefunk.MsgPackCodec,
+	var codecs = []BodyCodec{
+		JSONCodec,
+		MsgPackCodec,
 	}
 
 	type AAA struct {
