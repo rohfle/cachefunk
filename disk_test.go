@@ -12,7 +12,11 @@ import (
 func TestDiskStorage(t *testing.T) {
 	config := &Config{}
 
-	storage := NewDiskStorage(t.TempDir(), nil)
+	storage, err := NewDiskStorage(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("error while creating disk storage: %s", err)
+	}
+
 	cache := &CacheFunk{
 		Config:       config,
 		Storage:      storage,
@@ -48,6 +52,82 @@ func TestDiskStorage(t *testing.T) {
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
 }
 
+func TestBadCacheKeyPaths(t *testing.T) {
+	config := &Config{}
+
+	tempDir := t.TempDir()
+
+	storage, err := NewDiskStorage(tempDir, nil)
+	if err != nil {
+		t.Fatalf("error while creating disk storage: %s", err)
+	}
+
+	cache := &CacheFunk{
+		Config:       config,
+		Storage:      storage,
+		IgnoreCtxKey: DefaultIgnoreCacheCtxKey,
+	}
+
+	badKeys := []string{
+		"",
+		"../foo",
+		"../",
+		".",
+		"../../...../.../././././././././.",
+	}
+
+	original := "here is a value"
+	value := original
+
+	for _, key := range badKeys {
+		err := cache.Set(key, DefaultKeyConfig, "", value)
+		if err == nil {
+			t.Errorf("expected error with bad key %q, but got nil", key)
+			continue
+		}
+
+		err = cache.Get(key, DefaultKeyConfig, "", true, &value)
+		if err == nil {
+			t.Errorf("expected error with bad key %q, but got nil", key)
+			continue
+		}
+	}
+
+	err = cache.Clear()
+	if err != nil {
+		t.Fatalf("error while clearing cache: %s", err)
+	}
+
+	goodKeys := []string{
+		"key",
+		"a/b/c/d/e",
+	}
+
+	value = original
+
+	for _, key := range goodKeys {
+		err := cache.Set(key, DefaultKeyConfig, "", value)
+		if err != nil {
+			t.Errorf("expected no error with good key %s, but got %s", key, err)
+		}
+		err = cache.Get(key, DefaultKeyConfig, "", true, &value)
+		if err != nil {
+			t.Errorf("expected no error with good key %s, but got %s", key, err)
+		}
+
+		if value != original {
+			t.Errorf("expected %q got %q with good key %q", original, value, key)
+			continue
+		}
+	}
+
+	err = cache.Clear()
+	if err != nil {
+		t.Fatalf("error while clearing cache: %s", err)
+	}
+
+}
+
 func ExampleDiskStorage() {
 	type HelloWorldParams struct {
 		Name string
@@ -58,7 +138,11 @@ func ExampleDiskStorage() {
 	}
 
 	config := &Config{}
-	storage := NewDiskStorage("/path/to/cache", DefaultDiskStoragePather)
+	storage, err := NewDiskStorage("/path/to/cache", DefaultDiskStoragePather)
+	if err != nil {
+		fmt.Printf("Error while creating disk storage: %s\n", err)
+		return
+	}
 	cache := &CacheFunk{
 		Config:  config,
 		Storage: storage,

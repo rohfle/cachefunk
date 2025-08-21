@@ -2,10 +2,12 @@ package cachefunk
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -15,31 +17,72 @@ type DiskStorage struct {
 	CalculatePath DiskStoragePather
 }
 
-func NewDiskStorage(basePath string, pather DiskStoragePather) *DiskStorage {
+// checkDirWritable checks if the directory at the given path is writable.
+// It returns an error if the directory is not writable, nil otherwise.
+func checkDirWritable(dirPath string) error {
+	// os.CreateTemp creates a temporary file in the specified directory.
+	// This is the most reliable way to test writability.
+	tmpfile, err := os.CreateTemp(dirPath, "writable-test-")
+	if err != nil {
+		// If we can't create the file, the directory isn't writable.
+		return fmt.Errorf("%q is not writable: %w", dirPath, err)
+	}
+	// Close and remove the temporary file to clean up.
+	tmpfile.Close()
+	os.Remove(tmpfile.Name())
+	return nil
+}
+
+func NewDiskStorage(basePath string, pather DiskStoragePather) (*DiskStorage, error) {
 	if pather == nil {
 		pather = DefaultDiskStoragePather
+	}
+
+	basePath = filepath.Clean(basePath)
+	if basePath == "" {
+		return nil, errors.New("base path of DiskStorage should not be empty")
+	}
+
+	// Make sure the base path directory exists
+	err := os.MkdirAll(basePath, 0755)
+	if err != nil {
+		return nil, fmt.Errorf("when creating base path of DiskStorage %q: %w", basePath, err)
+	}
+
+	// Check basePath is writable
+	if err = checkDirWritable(basePath); err != nil {
+		return nil, fmt.Errorf("base path of DiskStorage %w", err)
 	}
 
 	cache := DiskStorage{
 		BasePath:      basePath,
 		CalculatePath: pather,
 	}
-	return &cache
+	return &cache, nil
 }
 
-func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, params string) string {
-	bits := append([]string{c.BasePath}, c.CalculatePath(cacheKey, params)...)
-	path := filepath.Join(bits...)
+func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, params string) (string, error) {
+	if cacheKey == "" || cacheKey[0] == '.' {
+		return "", fmt.Errorf("cache key cannot be blank or begin with a dot")
+	}
+	parts := c.CalculatePath(cacheKey, params)
+	relPath := filepath.Join(parts...)
+	if strings.HasPrefix(relPath, "..") || strings.HasPrefix(relPath, "/") {
+		return "", fmt.Errorf("generated path %q must be inside cache root", relPath)
+	}
+	path := filepath.Join(c.BasePath, relPath)
 	if compression := config.GetBodyCompression(); compression != NoCompression {
 		path += "." + compression.String()
 	}
-	return path
+	return path, nil
 }
 
 func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
-	path := c.getCacheItemPath(key, config, params)
-
-	// check if path exists
+	path, err := c.getCacheItemPath(key, config, params)
+	if err != nil {
+		return nil, fmt.Errorf("cache.Get: %w", err)
+	}
+	// Check if path exists
 	stat, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -49,9 +92,8 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTi
 	}
 
 	if expireTime.After(stat.ModTime()) {
-		// item has expired but DO NOT REMOVE THE ITEM
-		// if FallbackToExpired option set expired value
-		// will be used if retrieve function fails
+		// Item has expired but DO NOT REMOVE THE ITEM.
+		// If FallbackToExpired is set, expired value will be used if retrieve function fails.
 		return nil, ErrEntryExpired
 	}
 
@@ -66,9 +108,12 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTi
 }
 
 func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
-	path := c.getCacheItemPath(key, config, params)
+	path, err := c.getCacheItemPath(key, config, params)
+	if err != nil {
+		return fmt.Errorf("cache.Set: %w", err)
+	}
 	dirs, _ := filepath.Split(path)
-	err := os.MkdirAll(dirs, 0755)
+	err = os.MkdirAll(dirs, 0755)
 	if err != nil {
 		return fmt.Errorf("call to os.MkdirAll failed %+v: %v", dirs, err)
 	}
@@ -170,6 +215,7 @@ func (c *DiskStorage) IterateFiles(basePath string, callback func(string, fs.Dir
 	}
 }
 
+// Dump prints out a sample hexdump of cached content
 func (c *DiskStorage) Dump(n int64) {
 	var count int64
 	basePath := c.BasePath
