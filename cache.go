@@ -175,13 +175,14 @@ func Cache[Params any, ResultType any](
 	if !ignoreCache {
 		// check if theres an existing result in cache
 		err := cache.Get(key, config, paramStr, false, &result)
-		if err == nil {
+		switch err {
+		case nil:
 			return result, nil
-		} else if err == ErrEntryExpired {
+		case ErrEntryExpired:
 			entryIsExpired = true
-		} else if err == ErrEntryNotFound {
+		case ErrEntryNotFound:
 			// this is normal when no entry is stored
-		} else {
+		default:
 			// some error has happened while trying to get cache value
 			warning("ignoring error while getting cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
 		}
@@ -233,13 +234,14 @@ func CacheWithContext[Params any, ResultType any](
 	if ignoreCache, ok := ctx.Value(cache.GetIgnoreCtxKey()).(bool); !ok || !ignoreCache {
 		// check if theres an existing result in cache
 		err := cache.Get(key, config, paramStr, false, &result)
-		if err == nil {
+		switch err {
+		case nil:
 			return result, nil
-		} else if err == ErrEntryExpired {
+		case ErrEntryExpired:
 			entryIsExpired = true
-		} else if err == ErrEntryNotFound {
+		case ErrEntryNotFound:
 			// this is normal when no entry is stored
-		} else {
+		default:
 			// some error has happened while trying to get cache value
 			warning("ignoring error while getting cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
 		}
