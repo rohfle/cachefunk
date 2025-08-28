@@ -82,7 +82,7 @@ func (c *CacheFunk) Get(key string, config *KeyConfig, params string, value any)
 }
 
 func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any) error {
-	if config.TTL == TTLEntryImmediatelyExpires {
+	if config.TTL == TTLEntryImmediatelyExpires && !config.FallbackToExpired {
 		return nil // discard the entry - do not cache
 	}
 
@@ -121,10 +121,10 @@ func (c *CacheFunk) Clear() error {
 	return c.Storage.Clear()
 }
 
-func (c *CacheFunk) Cleanup() {
+func (c *CacheFunk) Cleanup(cleanupExpired bool) {
 	now := time.Now().UTC()
 	for key, config := range c.Config.Configs {
-		if config.TTL == TTLEntryNeverExpires {
+		if config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !cleanupExpired) {
 			continue
 		}
 		expireTime := config.GetExpireTime(now)

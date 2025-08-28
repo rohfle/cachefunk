@@ -15,6 +15,7 @@ Use wrapper functions to cache function output in golang.
 - Supports custom marshal / unmarshal: json, msgpack, string
 - Supports compression: zstd, gzip, brotli
 - Configurable TTL and TTL jitter
+- Configurable fallback to expired when downstream fails
 - Cleanup function for periodic removal of expired entries
 - Uses go generics, in IDE type checked parameters and result
 - Cache can be ignored, either by boolean or by ctx key
@@ -23,7 +24,7 @@ Use wrapper functions to cache function output in golang.
 
 ### Dependencies
 
-* go version that supports generics (tested on v1.19)
+* go version that supports generics (tested v1.23 and v1.24)
 
 ### Installing
 
@@ -81,7 +82,7 @@ func main() {
 	}
 
 	// Wrap the function
-	HelloWorld := cachefunk.Wrap(cache, "hello", helloWorldRaw)
+	HelloWorld := cachefunk.WrapWithIgnore(cache, "hello", helloWorldRaw)
 
 	// First call will get value from wrapped function
 	value, err := HelloWorld(false, &HelloWorldParams{
@@ -100,8 +101,10 @@ func main() {
 ## API
 
 - Wrap
+- WrapWithIgnore
 - WrapWithContext
 - Cache
+- CacheWithIgnore
 - CacheWithContext
 
 ## Notes about timestamps
@@ -117,7 +120,14 @@ func main() {
 
 ## Version History
 
-* HEAD
+* 0.4.1
+	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
+	* Added lazy load of existing expired entries
+	* Fallback to Expired
+	* Changed Wrap to WrapWithIgnore, Cache to CacheWithIgnore
+	* Removed ability set ignore cache ctx key
+	* Ensure DiskStorage file paths are within the cache
+* 0.4.0
 	* Complete rewrite
 	* Compression and Codec methods are now per config key
 	* Removed string / object specific functions, now unified type handling

@@ -201,7 +201,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 			t.Errorf("line %d: expected %d expired entries after second call to %s but got %d", line+1, tc.secondEntryExpiredCount, tc.key, count)
 		}
 
-		cache.Cleanup()
+		cache.Cleanup(true)
 
 		if t.Failed() {
 			return
@@ -320,13 +320,24 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Fatalf("returned values from CacheTTL do not match: %q vs %q", firstValue, secondValue)
 	}
 
-	cache.Cleanup()
+	// When FallbackToExpired is set, Cleanup does not remove expired entries when cleanupExpired is false
+	cache.Cleanup(false)
 	count, err = cache.EntryCount()
 	if err != nil {
-		t.Fatal("expected 0 cache entries after cache.Cleanup() but got error", err)
+		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got error", err)
+	}
+	if count != 1 {
+		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got", count)
+	}
+
+	// Force cleanup of expired entries
+	cache.Cleanup(true)
+	count, err = cache.EntryCount()
+	if err != nil {
+		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got error", err)
 	}
 	if count != 0 {
-		t.Fatal("expected 0 cache entries after cache.Cleanup() but got", count)
+		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got", count)
 	}
 }
 
@@ -392,13 +403,22 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 		t.Fatalf("returned values from CacheTTL do not match: %q vs %q", firstValue, secondValue)
 	}
 
-	cache.Cleanup()
+	cache.Cleanup(false)
 	count, err = cache.EntryCount()
 	if err != nil {
-		t.Fatal("expected 0 cache entries after cache.Cleanup() but got error", err)
+		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got error", err)
+	}
+	if count != 1 {
+		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got", count)
+	}
+
+	cache.Cleanup(true)
+	count, err = cache.EntryCount()
+	if err != nil {
+		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got error", err)
 	}
 	if count != 0 {
-		t.Fatal("expected 0 cache entries after cache.Cleanup() but got", count)
+		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got", count)
 	}
 }
 
