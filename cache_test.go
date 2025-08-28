@@ -593,7 +593,7 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *CacheFunk) {
 	}
 }
 
-func runTestWrapWithObjectResult(t *testing.T, cache *CacheFunk) {
+func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 	cache.Config = &Config{
 		Configs: map[string]*KeyConfig{
 			"helloWorld": {
@@ -830,6 +830,118 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
 		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
 
 		result, err := HelloWorld2(ctx, tc.params)
+
+		if err != nil {
+			t.Errorf("subtest %d: call to HelloWorld returned an error: %s", line+1, err)
+		}
+
+		if helloCounter != tc.counter {
+			t.Errorf("subtest %d: helloCounter expected %d got %d", line+1, tc.counter, helloCounter)
+		}
+
+		if result.Result != tc.result {
+			t.Errorf("subtest %d: result expected \"%s\" got \"%s\"", line+1, tc.result, result.Result)
+		}
+
+		if t.Failed() {
+			return
+		}
+	}
+
+	cache.Clear()
+
+	count, err = cache.EntryCount()
+	if err != nil {
+		t.Fatal("expected 0 cached values after clear got error", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 cached values after clear got %d", count)
+	}
+}
+
+func runTestWrapAndObjectResult(t *testing.T, cache *CacheFunk) {
+	cache.Config = &Config{
+		Defaults: &KeyConfig{TTL: 5, TTLJitter: 1},
+		Configs: map[string]*KeyConfig{
+			"helloWorld": {TTL: 5, TTLJitter: 1},
+		},
+	}
+
+	helloCounter := 0
+	type HelloWorldResult struct {
+		Result string
+		Params *HelloWorldParams
+	}
+
+	helloWorld := func(params *HelloWorldParams) (*HelloWorldResult, error) {
+		helloCounter += 1
+		s := fmt.Sprintf("Hello %s, you are %d", params.Name, params.Age)
+		return &HelloWorldResult{
+			Params: params,
+			Result: s,
+		}, nil
+	}
+
+	HelloWorld := Wrap(cache, "helloWorld", helloWorld)
+
+	testCases := []struct {
+		ignoreCache bool
+		params      *HelloWorldParams
+		result      string
+		err         error
+		counter     int
+	}{
+		{false, &HelloWorldParams{"Bob", 42}, "Hello Bob, you are 42", nil, 1},
+		{false, &HelloWorldParams{"Clark", 24}, "Hello Clark, you are 24", nil, 2},
+		{false, &HelloWorldParams{"Bob", 43}, "Hello Bob, you are 43", nil, 3},
+		{false, &HelloWorldParams{"Bob", 42}, "Hello Bob, you are 42", nil, 3},
+	}
+
+	for line, tc := range testCases {
+		result, err := HelloWorld(tc.params)
+
+		if err != nil {
+			t.Errorf("subtest %d: call to HelloWorld returned an error: %s", line+1, err)
+		}
+
+		if helloCounter != tc.counter {
+			t.Errorf("subtest %d: helloCounter expected %d got %d", line+1, tc.counter, helloCounter)
+		}
+
+		if result.Result != tc.result {
+			t.Errorf("subtest %d: result expected \"%s\" got \"%s\"", line+1, tc.result, result.Result)
+		}
+
+		if t.Failed() {
+			return
+		}
+	}
+
+	count, err := cache.EntryCount()
+	if err != nil {
+		t.Fatal("expected 3 cached values got error", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected 3 cached values got %d", count)
+	}
+
+	HelloWorld2 := Wrap(cache, "helloWorld2", helloWorld)
+
+	testCases = []struct {
+		ignoreCache bool
+		params      *HelloWorldParams
+		result      string
+		err         error
+		counter     int
+	}{
+		{false, &HelloWorldParams{"Bob", 42}, "Hello Bob, you are 42", nil, 4},
+		{false, &HelloWorldParams{"Clark", 24}, "Hello Clark, you are 24", nil, 5},
+		{false, &HelloWorldParams{"Bob", 43}, "Hello Bob, you are 43", nil, 6},
+		{false, &HelloWorldParams{"Bob", 42}, "Hello Bob, you are 42", nil, 6},
+	}
+
+	for line, tc := range testCases {
+		result, err := HelloWorld2(tc.params)
 
 		if err != nil {
 			t.Errorf("subtest %d: call to HelloWorld returned an error: %s", line+1, err)

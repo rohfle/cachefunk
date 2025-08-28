@@ -52,11 +52,13 @@ func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyL
 	expireTime := config.GetExpireTime(time.Now().UTC())
 
 	valueData, err := c.Storage.Get(key, config, params, expireTime)
-	if err != nil && !(err == ErrEntryExpired && config.FallbackToExpired) {
+	useExpired := (err == ErrEntryExpired && config.FallbackToExpired)
+	if err != nil && !useExpired {
 		return nil, err
 	}
+
 	lazyload := func(value any) error {
-		return config.DecompressAndUnmarshal(valueData, &value)
+		return config.DecompressAndUnmarshal(valueData, value)
 	}
 	return lazyload, err
 }
@@ -222,8 +224,7 @@ func cacheImpl[Params any, ResultType any](
 ) (ResultType, error) {
 	config := cache.Config.Get(key)
 	var result ResultType
-	var saved ResultType
-	var entryIsExpired = false
+	var lazyload func(any) error = nil
 	// serialize parameters for cache
 	// key + parameters determines a unique identifier for a request
 	paramStr, err := config.GetParamCodec().Marshal(params)
@@ -234,13 +235,19 @@ func cacheImpl[Params any, ResultType any](
 
 	if !ignoreCache {
 		// check if theres an existing result in cache
-		err := cache.Get(key, config, paramStr, &result)
+		lazyload, err = cache.GetLazy(key, config, paramStr)
+		if err == nil {
+			// result is good and not expired, immediately lazyload
+			err = lazyload(&result)
+			if err == nil {
+				// decompress and unmarshal successful
+				return result, nil
+			}
+		}
+		// there has been an error either in GetLazy or calling lazyload
 		switch err {
-		case nil:
-			return result, nil
 		case ErrEntryExpired:
-			saved = result
-			entryIsExpired = true
+			// lazyloader will be returned
 		case ErrEntryNotFound:
 			// this is normal when no entry is in cache
 		default:
@@ -251,13 +258,16 @@ func cacheImpl[Params any, ResultType any](
 	// so call resolver and get a fresh result
 	result, err = resolverFunc(params)
 	if err != nil {
-		fmt.Println(result, saved, err, config.FallbackToExpired, entryIsExpired)
 		// an error has occurred
-		if config.FallbackToExpired && entryIsExpired {
+		if config.FallbackToExpired && lazyload != nil {
 			// theres an expired cache entry maybe we can use it as a fallback
 			// for example, if an upstream webserver disappears
-			warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%+v: %s", key, paramStr, err)
-			return saved, nil
+			err = lazyload(&result)
+			if err == nil {
+				// decompress and unmarshal successful
+				warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%+v: %s", key, paramStr, err)
+				return result, nil
+			}
 		}
 		// otherwise error as both the cache and the resolver failed to return a result
 		return result, fmt.Errorf("failed to retrieve fresh value for key=%q paramStr=%+v: %w", key, paramStr, err)
