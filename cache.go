@@ -238,19 +238,14 @@ func cacheImpl[Params any, ResultType any](
 		lazyload, err = cache.GetLazy(key, config, paramStr)
 		if err == nil {
 			// result is good and not expired, immediately lazyload
-			err = lazyload(&result)
-			if err == nil {
+			if err = lazyload(&result); err == nil {
 				// decompress and unmarshal successful
 				return result, nil
 			}
 		}
-		// there has been an error either in GetLazy or calling lazyload
-		switch err {
-		case ErrEntryExpired:
-			// lazyloader will be returned
-		case ErrEntryNotFound:
-			// this is normal when no entry is in cache
-		default:
+
+		if err != nil && err != ErrEntryNotFound && err != ErrEntryExpired {
+			// there has been an error either in GetLazy or calling lazyload
 			warning("ignoring error while getting cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
 		}
 	}
@@ -262,8 +257,7 @@ func cacheImpl[Params any, ResultType any](
 		if config.FallbackToExpired && lazyload != nil {
 			// theres an expired cache entry maybe we can use it as a fallback
 			// for example, if an upstream webserver disappears
-			err = lazyload(&result)
-			if err == nil {
+			if err = lazyload(&result); err == nil {
 				// decompress and unmarshal successful
 				warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%+v: %s", key, paramStr, err)
 				return result, nil
