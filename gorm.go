@@ -38,7 +38,7 @@ func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
 	return &cache, nil
 }
 
-func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
+func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	var cacheEntry CacheEntry
 
 	result := c.DB.Where("key = ? AND params = ?", key, params).First(&cacheEntry)
@@ -59,7 +59,7 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireTi
 	value := cacheEntry.Data
 
 	// if entry has expired, delete and return not found
-	if expireTime.After(cacheEntry.Timestamp) {
+	if expireBeforeTime.After(cacheEntry.Timestamp) {
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value
 		// will be used if retrieve function fails
@@ -99,8 +99,8 @@ func (c *GORMStorage) Clear() error {
 }
 
 // Cleanup will delete all cache entries that have expired
-func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireTime time.Time) error {
-	result := c.DB.Where("key = ? AND timestamp < ?", key, expireTime).Delete(&CacheEntry{})
+func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
+	result := c.DB.Where("key = ? AND timestamp < ?", key, expireBeforeTime).Delete(&CacheEntry{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -116,9 +116,9 @@ func (c *GORMStorage) EntryCount() (int64, error) {
 	return count, nil
 }
 
-func (c *GORMStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (int64, error) {
+func (c *GORMStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64
-	result := c.DB.Model(&CacheEntry{}).Where("key = ? AND timestamp < ?", key, expireTime).Count(&count)
+	result := c.DB.Model(&CacheEntry{}).Where("key = ? AND timestamp < ?", key, expireBeforeTime).Count(&count)
 	if result.Error != nil {
 		return 0, result.Error
 	}

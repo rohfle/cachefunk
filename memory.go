@@ -27,7 +27,7 @@ func NewInMemoryStorage() *InMemoryStorage {
 	return &cache
 }
 
-func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
+func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	fullKey := key + ":" + params
 	c.mutex.RLock()
 	value, found := c.store[fullKey]
@@ -43,7 +43,7 @@ func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expi
 	}
 
 	// check if cached value has expired
-	if expireTime.After(value.Timestamp) {
+	if expireBeforeTime.After(value.Timestamp) {
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value
 		// will be used if retrieve function fails
@@ -75,13 +75,13 @@ func (c *InMemoryStorage) Clear() error {
 	return nil
 }
 
-func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireTime time.Time) error {
+func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	c.mutex.Lock()
 	for fullkey, value := range c.store {
 		if !strings.HasPrefix(fullkey, key+":") {
 			continue
 		}
-		if expireTime.After(value.Timestamp) {
+		if expireBeforeTime.After(value.Timestamp) {
 			// its safe to delete from maps during a range loop
 			delete(c.store, fullkey)
 		}
@@ -97,14 +97,14 @@ func (c *InMemoryStorage) EntryCount() (int64, error) {
 	return int64(count), nil
 }
 
-func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (int64, error) {
+func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64 = 0
 	c.mutex.RLock()
 	for fullkey, value := range c.store {
 		if !strings.HasPrefix(fullkey, key+":") {
 			continue
 		}
-		if expireTime.After(value.Timestamp) {
+		if expireBeforeTime.After(value.Timestamp) {
 			count += 1
 		}
 	}

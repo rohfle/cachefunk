@@ -33,25 +33,25 @@ type CacheFunk struct {
 
 type CacheStorage interface {
 	// Get a value from the cache if it exists
-	Get(key string, config *KeyConfig, params string, expireTime time.Time) (value []byte, err error)
+	Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) (value []byte, err error)
 	// Set a raw value for key in the cache
 	Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) (err error)
 	// Get the number of entries in the cache
 	EntryCount() (count int64, err error)
-	// Get how many entries have expired in the cache compared to expireTime
-	ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (count int64, err error)
+	// Get how many entries have expired in the cache compared to expireBeforeTime
+	ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (count int64, err error)
 	// Delete all entries in the cache
 	Clear() error
-	// Delete entries that have timestamps in cache before expireTime
-	Cleanup(key string, config *KeyConfig, expireTime time.Time) error
+	// Delete entries that have timestamps in cache before expireBeforeTime
+	Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error
 	// Print all cached entries for test debugging purposes
 	Dump(n int64)
 }
 
 func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyLoad, error) {
-	expireTime := config.GetExpireTime(time.Now().UTC())
+	expireBeforeTime := config.GetExpireTime(time.Now().UTC())
 
-	valueData, err := c.Storage.Get(key, config, params, expireTime)
+	valueData, err := c.Storage.Get(key, config, params, expireBeforeTime)
 	useExpired := (err == ErrEntryExpired && config.FallbackToExpired)
 	if err != nil && !useExpired {
 		return nil, err
@@ -64,9 +64,9 @@ func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyL
 }
 
 func (c *CacheFunk) Get(key string, config *KeyConfig, params string, value any) error {
-	expireTime := config.GetExpireTime(time.Now().UTC())
+	expireBeforeTime := config.GetExpireTime(time.Now().UTC())
 
-	valueData, err := c.Storage.Get(key, config, params, expireTime)
+	valueData, err := c.Storage.Get(key, config, params, expireBeforeTime)
 	useExpired := (err == ErrEntryExpired && config.FallbackToExpired)
 	if err != nil && !useExpired {
 		return err
@@ -107,8 +107,8 @@ func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 		if config.TTL == TTLEntryNeverExpires {
 			continue
 		}
-		expireTime := config.GetExpireTime(now)
-		chunk, err := c.Storage.ExpiredEntryCount(key, config, expireTime)
+		expireBeforeTime := config.GetExpireTime(now)
+		chunk, err := c.Storage.ExpiredEntryCount(key, config, expireBeforeTime)
 		if err != nil {
 			return 0, fmt.Errorf("error while fetching expired entry count for key=%q: %w", key, err)
 		}
@@ -121,14 +121,14 @@ func (c *CacheFunk) Clear() error {
 	return c.Storage.Clear()
 }
 
-func (c *CacheFunk) Cleanup(cleanupExpired bool) {
+func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 	now := time.Now().UTC()
 	for key, config := range c.Config.Configs {
-		if config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !cleanupExpired) {
+		if config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !forceCleanupExpired) {
 			continue
 		}
-		expireTime := config.GetExpireTime(now)
-		err := c.Storage.Cleanup(key, config, expireTime)
+		expireBeforeTime := config.GetExpireTime(now)
+		err := c.Storage.Cleanup(key, config, expireBeforeTime)
 		if err != nil {
 			// deal with it
 			continue

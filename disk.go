@@ -77,7 +77,7 @@ func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, param
 	return path, nil
 }
 
-func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTime time.Time) ([]byte, error) {
+func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	path, err := c.getCacheItemPath(key, config, params)
 	if err != nil {
 		return nil, fmt.Errorf("cache.Get: %w", err)
@@ -91,7 +91,7 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTi
 		return nil, fmt.Errorf("call to os.Stat failed %q: %v", path, err)
 	}
 
-	hasExpired := expireTime.After(stat.ModTime())
+	hasExpired := expireBeforeTime.After(stat.ModTime())
 	if hasExpired && !config.FallbackToExpired {
 		// No need to load expired data if not configued to fallback to expired
 		return nil, ErrEntryExpired
@@ -148,7 +148,7 @@ func (c *DiskStorage) Clear() error {
 }
 
 // Cleanup will delete all cache entries that have expired
-func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireTime time.Time) error {
+func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	basePath := filepath.Join(c.BasePath, key)
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return nil // key doesnt exist therefore nothing to do
@@ -161,7 +161,7 @@ func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireTime time.Tim
 			return
 		}
 
-		if expireTime.After(info.ModTime()) {
+		if expireBeforeTime.After(info.ModTime()) {
 			err := os.Remove(path)
 			if err != nil {
 				warning("skipping %q: file cleanup failed: %v", path, err)
@@ -179,7 +179,7 @@ func (c *DiskStorage) EntryCount() (int64, error) {
 	return count, nil
 }
 
-func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTime time.Time) (int64, error) {
+func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64
 	basePath := filepath.Join(c.BasePath, key)
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
@@ -193,7 +193,7 @@ func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireTim
 			return
 		}
 
-		if expireTime.After(info.ModTime()) {
+		if expireBeforeTime.After(info.ModTime()) {
 			count += 1
 		}
 	})

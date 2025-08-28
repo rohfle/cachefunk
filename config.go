@@ -121,10 +121,10 @@ type keyConfigRaw struct {
 // any entry with timestamp before the expire time is said to have expired
 func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	if kc.TTL == TTLEntryImmediatelyExpires {
-		// expireTime will always be after timestamp therefore everything expires immediately
+		// expireBeforeTime will always be after timestamp therefore everything expires immediately
 		return MaxDate
 	} else if kc.TTL <= TTLEntryNeverExpires || kc.TTL > TTLMax {
-		// expireTime will always be before timestamp therefore everything never expires
+		// expireBeforeTime will always be before timestamp therefore everything never expires
 		return MinDate
 	}
 

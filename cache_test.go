@@ -291,7 +291,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 	}
 
 	// Wait for entries to expire
-	// Check entries expireTime are after now
+	// Check entries expireBeforeTime are after now
 	count, err = cache.ExpiredEntryCount()
 	if err != nil {
 		t.Fatal("expected 0 expired cache entries but got error", err)
@@ -374,7 +374,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 	}
 
 	// Wait for entries to expire
-	// Check entries expireTime are after now
+	// Check entries expireBeforeTime are after now
 	count, err = cache.ExpiredEntryCount()
 	if err != nil {
 		t.Fatal("expected 0 expired cache entries but got error", err)
