@@ -14,21 +14,21 @@ var (
 )
 
 type LazyLoad func(any) error
-type CtxKey string
 
-const DefaultIgnoreCacheCtxKey CtxKey = "ignoreCache"
+type ignoreCacheKey struct{}
 
-type CacheFunk struct {
-	Config       *Config
-	IgnoreCtxKey CtxKey
-	Storage      CacheStorage
+func GetIgnoreCacheFromContext(ctx context.Context) bool {
+	ignoreCache, _ := ctx.Value(ignoreCacheKey{}).(bool)
+	return ignoreCache
 }
 
-func (c *CacheFunk) GetIgnoreCtxKey() CtxKey {
-	if c.IgnoreCtxKey == "" {
-		return DefaultIgnoreCacheCtxKey
-	}
-	return c.IgnoreCtxKey
+func SetIgnoreCacheInContext(ctx context.Context, value bool) context.Context {
+	return context.WithValue(ctx, ignoreCacheKey{}, value)
+}
+
+type CacheFunk struct {
+	Config  *Config
+	Storage CacheStorage
 }
 
 type CacheStorage interface {
@@ -136,11 +136,6 @@ func (c *CacheFunk) Cleanup() {
 	}
 }
 
-func (c *CacheFunk) GetIgnoreCacheFromContext(ctx context.Context) bool {
-	ignoreCache, _ := ctx.Value(c.GetIgnoreCtxKey()).(bool)
-	return ignoreCache
-}
-
 // Wrap type functions
 // These don't work with type methods unfortunately
 func Wrap[Params any, ResultType any](
@@ -207,7 +202,7 @@ func CacheWithContext[Params any, ResultType any](
 	ctx context.Context,
 	params Params,
 ) (ResultType, error) {
-	ignoreCache := cache.GetIgnoreCacheFromContext(ctx)
+	ignoreCache := GetIgnoreCacheFromContext(ctx)
 	resolverFuncPatch := func(params Params) (ResultType, error) {
 		return resolverFunc(ctx, params)
 	}

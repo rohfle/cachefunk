@@ -18,9 +18,8 @@ func TestDiskStorage(t *testing.T) {
 	}
 
 	cache := &CacheFunk{
-		Config:       config,
-		Storage:      storage,
-		IgnoreCtxKey: DefaultIgnoreCacheCtxKey,
+		Config:  config,
+		Storage: storage,
 	}
 
 	runTestWrapWithStringResult(t, cache)
@@ -65,9 +64,8 @@ func TestBadCacheKeyPaths(t *testing.T) {
 	}
 
 	cache := &CacheFunk{
-		Config:       config,
-		Storage:      storage,
-		IgnoreCtxKey: DefaultIgnoreCacheCtxKey,
+		Config:  config,
+		Storage: storage,
 	}
 
 	badKeys := []string{

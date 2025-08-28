@@ -57,7 +57,7 @@ func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
 
 	BadFunctionCtx := WrapWithContext(cache, "bad", badFunctionCtx)
 	GoodFunctionCtx := WrapWithContext(cache, "good", goodFunctionCtx)
-	ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, true)
+	ctx := SetIgnoreCacheInContext(context.TODO(), true)
 
 	_, err = BadFunctionCtx(ctx, &BadParams{Bad: func() {}})
 	if err == nil {
@@ -568,7 +568,7 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *CacheFunk) {
 		{true, "Bob", 42, "Hello Bob, you are 42", nil, 4},
 	}
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
+		ctx := SetIgnoreCacheInContext(context.TODO(), tc.ignoreCache)
 
 		result, err := HelloWorld(ctx, &HelloWorldParams{
 			Name: tc.name,
@@ -781,7 +781,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
 	}
 
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
+		ctx := SetIgnoreCacheInContext(context.TODO(), tc.ignoreCache)
 
 		result, err := HelloWorld(ctx, tc.params)
 
@@ -827,7 +827,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
 	}
 
 	for line, tc := range testCases {
-		ctx := context.WithValue(context.TODO(), DefaultIgnoreCacheCtxKey, tc.ignoreCache)
+		ctx := SetIgnoreCacheInContext(context.TODO(), tc.ignoreCache)
 
 		result, err := HelloWorld2(ctx, tc.params)
 
