@@ -58,7 +58,7 @@ func ExampleInMemoryStorage() {
 		Storage: NewInMemoryStorage(),
 	}
 
-	HelloWorld := Wrap(cache, "hello", helloWorld)
+	HelloWorld := WrapWithIgnore(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

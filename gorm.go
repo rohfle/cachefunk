@@ -56,15 +56,15 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireTi
 		return nil, ErrEntryNotFound
 	}
 
+	value := cacheEntry.Data
+
 	// if entry has expired, delete and return not found
 	if expireTime.After(cacheEntry.Timestamp) {
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value
 		// will be used if retrieve function fails
-		return nil, ErrEntryExpired
+		return value, ErrEntryExpired
 	}
-
-	value := cacheEntry.Data
 	return value, nil
 }
 

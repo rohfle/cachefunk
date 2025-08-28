@@ -29,8 +29,8 @@ func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
 		return "", nil
 	}
 
-	BadFunction := Wrap(cache, "bad", badFunction)
-	GoodFunction := Wrap(cache, "good", goodFunction)
+	BadFunction := WrapWithIgnore(cache, "bad", badFunction)
+	GoodFunction := WrapWithIgnore(cache, "good", goodFunction)
 
 	_, err := BadFunction(false, &BadParams{Bad: func() {}})
 	if err == nil {
@@ -124,12 +124,12 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 		return []byte{}, nil
 	}
 
-	CacheTTL := Wrap(cache, "noop_CacheTTL", noop)
-	NoCache := Wrap(cache, "noop_NoCache", noop)
-	CacheTTLWithJitter := Wrap(cache, "noop_CacheTTLWithJitter", noop)
-	CacheTTLNegative := Wrap(cache, "noop_CacheTTLNegative", noop)
-	CacheTTLHuge := Wrap(cache, "noop_CacheTTLHuge", noop)
-	CacheTTLForever := Wrap(cache, "noop_CacheTTLForever", noop)
+	CacheTTL := WrapWithIgnore(cache, "noop_CacheTTL", noop)
+	NoCache := WrapWithIgnore(cache, "noop_NoCache", noop)
+	CacheTTLWithJitter := WrapWithIgnore(cache, "noop_CacheTTLWithJitter", noop)
+	CacheTTLNegative := WrapWithIgnore(cache, "noop_CacheTTLNegative", noop)
+	CacheTTLHuge := WrapWithIgnore(cache, "noop_CacheTTLHuge", noop)
+	CacheTTLForever := WrapWithIgnore(cache, "noop_CacheTTLForever", noop)
 
 	testCases := []struct {
 		key                     string
@@ -223,7 +223,7 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireA
 		return "hello world", nil
 	}
 
-	CacheTTL := Wrap(cache, "hello_CacheTTL", helloRaw)
+	CacheTTL := WrapWithIgnore(cache, "hello_CacheTTL", helloRaw)
 
 	// Test TTL=1 no jitter
 	firstValue, err := CacheTTL(false, nil)
@@ -275,7 +275,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 		}
 	}
 
-	CacheTTL := Wrap(cache, "hello_CacheTTL", helloRaw)
+	CacheTTL := WrapWithIgnore(cache, "hello_CacheTTL", helloRaw)
 
 	// Test TTL=1 no jitter
 	firstValue, err := CacheTTL(false, nil)
@@ -413,7 +413,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
 		return "", errors.New("oh no")
 	}
 
-	FailWorldString := Wrap(cache, "failWorld", failWorld)
+	FailWorldString := WrapWithIgnore(cache, "failWorld", failWorld)
 
 	if _, err := FailWorldString(false, nil); err == nil {
 		t.Fatal("expected an error but got nil")
@@ -427,7 +427,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
 		t.Fatal("expected 0 cache entries but got", count)
 	}
 
-	FailWorldJSON := Wrap(cache, "failWorld", failWorld)
+	FailWorldJSON := WrapWithIgnore(cache, "failWorld", failWorld)
 
 	if _, err := FailWorldJSON(false, nil); err == nil {
 		t.Fatal("expected an error but got nil")
@@ -496,7 +496,7 @@ func runTestWrapWithStringResult(t *testing.T, cache *CacheFunk) {
 		return s, nil
 	}
 
-	HelloWorld := Wrap(cache, "helloWorld", helloWorld)
+	HelloWorld := WrapWithIgnore(cache, "helloWorld", helloWorld)
 
 	testCases := []struct {
 		ignoreCache bool
@@ -629,7 +629,7 @@ func runTestWrapWithObjectResult(t *testing.T, cache *CacheFunk) {
 		}, nil
 	}
 
-	HelloWorld := Wrap(cache, "helloWorld", helloWorld)
+	HelloWorld := WrapWithIgnore(cache, "helloWorld", helloWorld)
 
 	testCases := []struct {
 		ignoreCache bool
@@ -675,7 +675,7 @@ func runTestWrapWithObjectResult(t *testing.T, cache *CacheFunk) {
 
 	cache.Storage.Dump(1)
 
-	HelloWorld2 := Wrap(cache, "helloWorld2", helloWorld)
+	HelloWorld2 := WrapWithIgnore(cache, "helloWorld2", helloWorld)
 
 	testCases = []struct {
 		ignoreCache bool

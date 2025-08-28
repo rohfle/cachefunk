@@ -47,7 +47,7 @@ func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expi
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value
 		// will be used if retrieve function fails
-		return nil, ErrEntryExpired
+		return value.Data, ErrEntryExpired
 	}
 
 	return value.Data, nil

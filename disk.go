@@ -91,18 +91,18 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireTi
 		return nil, fmt.Errorf("call to os.Stat failed %q: %v", path, err)
 	}
 
-	if expireTime.After(stat.ModTime()) {
-		// Item has expired but DO NOT REMOVE THE ITEM.
-		// If FallbackToExpired is set, expired value will be used if retrieve function fails.
-		return nil, ErrEntryExpired
-	}
-
 	value, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrEntryNotFound
 		}
 		return nil, fmt.Errorf("failed to read %q: %v", path, err)
+	}
+
+	if expireTime.After(stat.ModTime()) {
+		// Item has expired but DO NOT REMOVE THE ITEM.
+		// If FallbackToExpired is set, expired value will be used if retrieve function fails.
+		return value, ErrEntryExpired
 	}
 	return value, nil
 }

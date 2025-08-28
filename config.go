@@ -2,6 +2,7 @@ package cachefunk
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand/v2"
 	"time"
 )
@@ -197,4 +198,30 @@ func (kc *KeyConfig) UnmarshalJSON(data []byte) error {
 	kc.BodyCompression = bodyCompression
 	kc.ParamCodec = paramCodec
 	return nil
+}
+
+func (kc *KeyConfig) DecompressAndUnmarshal(valueData []byte, value any) error {
+	valueData, err := kc.GetBodyCompression().Decompress(valueData)
+	if err != nil {
+		return fmt.Errorf("failed to decompress: %w", err)
+	}
+
+	err = kc.GetBodyCodec().Unmarshal(valueData, value)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal: %w", err)
+	}
+	return nil
+}
+
+func (kc *KeyConfig) MarshalAndCompress(value any) ([]byte, error) {
+	valueData, err := kc.GetBodyCodec().Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal: %w", err)
+	}
+
+	valueData, err = kc.GetBodyCompression().Compress(valueData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compress: %w", err)
+	}
+	return valueData, nil
 }

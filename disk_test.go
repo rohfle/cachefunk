@@ -86,7 +86,7 @@ func TestBadCacheKeyPaths(t *testing.T) {
 			continue
 		}
 
-		err = cache.Get(key, DefaultKeyConfig, "", true, &value)
+		err = cache.Get(key, DefaultKeyConfig, "", &value)
 		if err == nil {
 			t.Errorf("expected error with bad key %q, but got nil", key)
 			continue
@@ -110,7 +110,7 @@ func TestBadCacheKeyPaths(t *testing.T) {
 		if err != nil {
 			t.Errorf("expected no error with good key %s, but got %s", key, err)
 		}
-		err = cache.Get(key, DefaultKeyConfig, "", true, &value)
+		err = cache.Get(key, DefaultKeyConfig, "", &value)
 		if err != nil {
 			t.Errorf("expected no error with good key %s, but got %s", key, err)
 		}
@@ -148,7 +148,7 @@ func ExampleDiskStorage() {
 		Storage: storage,
 	}
 
-	HelloWorld := Wrap(cache, "hello", helloWorld)
+	HelloWorld := WrapWithIgnore(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}

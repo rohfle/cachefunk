@@ -80,7 +80,7 @@ func ExampleGORMStorage() {
 		Storage: storage,
 	}
 
-	HelloWorld := Wrap(cache, "hello", helloWorld)
+	HelloWorld := WrapWithIgnore(cache, "hello", helloWorld)
 	params := &HelloWorldParams{
 		Name: "bob",
 	}
