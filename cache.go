@@ -11,6 +11,7 @@ import (
 var (
 	ErrEntryNotFound = errors.New("cache entry not found")
 	ErrEntryExpired  = errors.New("cache entry expired")
+	ErrDoNotCache    = errors.New("do not cache the entry")
 )
 
 type LazyLoad func(any) error
@@ -247,7 +248,21 @@ func cacheImpl[Params any, ResultType any](
 	// either there is no existing result, or the result was invalid or expired
 	// so call resolver and get a fresh result
 	result, err = resolverFunc(params)
-	if err != nil {
+	switch err {
+	case nil:
+		// call to resolver was successful, set value in cache
+		err = cache.Set(key, config, paramStr, result)
+		if err != nil {
+			// passthrough result and error to parent
+			return result, fmt.Errorf("set cache failed for key=%q paramStr=%+v: %w", key, paramStr, err)
+		}
+		return result, nil
+	case ErrDoNotCache:
+		// the result is valid, but do not cache the result
+		// useful for things like gateway timeout in http, where you want to return the response
+		// but it doesnt make sense to use the same response next time
+		return result, nil
+	default:
 		// an error has occurred
 		if config.FallbackToExpired && lazyload != nil {
 			// theres an expired cache entry maybe we can use it as a fallback
@@ -261,10 +276,4 @@ func cacheImpl[Params any, ResultType any](
 		// otherwise error as both the cache and the resolver failed to return a result
 		return result, fmt.Errorf("failed to retrieve fresh value for key=%q paramStr=%+v: %w", key, paramStr, err)
 	}
-	err = cache.Set(key, config, paramStr, result)
-	if err != nil {
-		// passthrough the result and the error
-		return result, fmt.Errorf("set cache failed for key=%q paramStr=%+v: %w", key, paramStr, err)
-	}
-	return result, nil
 }

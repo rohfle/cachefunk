@@ -12,13 +12,14 @@ Use wrapper functions to cache function output in golang.
 	- any GORM-supported database
 	- in-memory caching
 	- files on disk
-- Supports custom marshal / unmarshal: json, msgpack, string
-- Supports compression: zstd, gzip, brotli
+- Custom marshal / unmarshal: json, msgpack, string
+- Compression: zstd, gzip, brotli
 - Configurable TTL and TTL jitter
 - Configurable fallback to expired when downstream fails
 - Cleanup function for periodic removal of expired entries
 - Uses go generics, in IDE type checked parameters and result
 - Cache can be ignored, either by boolean or by ctx key
+- Use `ErrDoNotCache` from target function to return result without caching it
 
 ## Getting Started
 
