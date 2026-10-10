@@ -9,6 +9,66 @@ import (
 	"time"
 )
 
+// runTestCleanupUnconfiguredKey checks that expired counting and cleanup are
+// driven by the keys that have entries in the storage rather than the keys
+// listed in Config. An unlisted key resolves through DefaultKey, and its
+// entries must still be counted and cleaned up.
+func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
+	cache.Config = Config{
+		DefaultKey: {TTL: 1, TTLJitter: 0, BodyCodec: StringCodec, BodyCompression: NoCompression},
+	}
+
+	unlisted := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
+		return "unlisted value", nil
+	}
+	Unlisted := WrapWithIgnore(cache, "unlistedKey", unlisted)
+
+	value, err := Unlisted(false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error while caching under an unlisted key: %s", err)
+	}
+	if value != "unlisted value" {
+		t.Fatalf("expected \"unlisted value\" but got %q", value)
+	}
+
+	keys, err := cache.Storage.Keys()
+	if err != nil {
+		t.Fatalf("error while fetching cache keys: %s", err)
+	}
+	if len(keys) != 1 || keys[0] != "unlistedKey" {
+		t.Fatalf("expected Keys() to return [unlistedKey] but got %v", keys)
+	}
+
+	// expiry is applied out of band so the test does not have to wait for it
+	expireAllEntries()
+
+	expired, err := cache.ExpiredEntryCount()
+	if err != nil {
+		t.Fatalf("error while fetching expired entry count: %s", err)
+	}
+	if expired != 1 {
+		t.Errorf("expected the unlisted key to be counted as expired but got %d", expired)
+	}
+
+	cache.Cleanup(true)
+
+	count, err := cache.EntryCount()
+	if err != nil {
+		t.Fatalf("expected 0 entries after cleanup but got error %s", err)
+	}
+	if count != 0 {
+		t.Errorf("expected cleanup to remove the unlisted key's entry but %d entries remain", count)
+	}
+
+	keys, err = cache.Storage.Keys()
+	if err != nil {
+		t.Fatalf("error while fetching cache keys: %s", err)
+	}
+	if len(keys) != 0 {
+		t.Errorf("expected no keys after cleanup but got %v", keys)
+	}
+}
+
 func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
 	cache.Config = Config{
 		"bad":  {TTL: 1},

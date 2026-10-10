@@ -56,6 +56,8 @@ func TestGORMStorage(t *testing.T) {
 	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
 	cache.Clear()
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCleanupUnconfiguredKey(t, cache, expireAllEntries)
 }
 
 func ExampleGORMStorage() {

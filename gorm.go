@@ -89,6 +89,18 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 	return nil
 }
 
+// Keys returns the distinct cache keys that currently have entries
+func (c *GORMStorage) Keys() ([]string, error) {
+	var keys []string
+	// Distinct and Pluck build quoted column references, unlike a raw SQL
+	// string, so this works on dialects where key is a reserved word
+	result := c.DB.Model(&CacheEntry{}).Distinct().Pluck("key", &keys)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return keys, nil
+}
+
 // Clear will delete all cache entries
 func (c *GORMStorage) Clear() error {
 	result := c.DB.Where("1 = 1").Delete(&CacheEntry{})

@@ -37,6 +37,8 @@ type CacheStorage interface {
 	Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) (value []byte, err error)
 	// Set a raw value for key in the cache
 	Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) (err error)
+	// Get the distinct cache keys that currently have entries in the cache
+	Keys() (keys []string, err error)
 	// Get the number of entries in the cache
 	EntryCount() (count int64, err error)
 	// Get how many entries have expired in the cache compared to expireBeforeTime
@@ -104,8 +106,15 @@ func (c *CacheFunk) EntryCount() (int64, error) {
 func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 	var count int64
 	now := time.Now().UTC()
-	for key, config := range c.Config {
-		if key == DefaultKey || config.TTL == TTLEntryNeverExpires {
+	keys, err := c.Storage.Keys()
+	if err != nil {
+		return 0, fmt.Errorf("error while fetching cache keys: %w", err)
+	}
+	// Iterate over keys present in Storage rather than keys present in Config,
+	// so entries under defaults are counted too
+	for _, key := range keys {
+		config := c.Config.Get(key)
+		if config.TTL == TTLEntryNeverExpires {
 			continue
 		}
 		expireBeforeTime := config.GetExpireTime(now)
@@ -124,8 +133,16 @@ func (c *CacheFunk) Clear() error {
 
 func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 	now := time.Now().UTC()
-	for key, config := range c.Config {
-		if key == DefaultKey || config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !forceCleanupExpired) {
+	keys, err := c.Storage.Keys()
+	if err != nil {
+		warning("failed to list cache keys for cleanup: %s", err)
+		return
+	}
+	// Iterate over keys present in Storage rather than keys present in Config,
+	// so entries under defaults are cleaned up also
+	for _, key := range keys {
+		config := c.Config.Get(key)
+		if config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !forceCleanupExpired) {
 			continue
 		}
 		expireBeforeTime := config.GetExpireTime(now)

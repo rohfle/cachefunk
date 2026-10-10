@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -155,10 +156,36 @@ func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []
 		return fmt.Errorf("call to os.Chtimes failed %q: %v", path, err)
 	}
 	err = os.Rename(tmpName, path)
+	if os.IsNotExist(err) {
+		// A concurrent Cleanup may have removed directories after MkdirAll above
+		// so recreate them and retry the rename once
+		if mkErr := os.MkdirAll(dirs, 0755); mkErr == nil {
+			err = os.Rename(tmpName, path)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("call to os.Rename failed %q: %v", path, err)
 	}
 	return nil
+}
+
+// Keys returns distinct cache keys that have entries.
+// In DiskStorage, each cache key is a directory inside BasePath.
+func (c *DiskStorage) Keys() ([]string, error) {
+	entries, err := os.ReadDir(c.BasePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("call to os.ReadDir failed %q: %v", c.BasePath, err)
+	}
+	var keys []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			keys = append(keys, entry.Name())
+		}
+	}
+	return keys, nil
 }
 
 // Clear will delete all cache entries
@@ -183,6 +210,9 @@ func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return nil // key doesnt exist therefore nothing to do
 	}
+	// directories of entries that get removed, so they can be cleaned up
+	// after the walk (see pruneEmptyDirs)
+	var emptied []string
 	c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
 		info, err := file.Info()
@@ -195,10 +225,31 @@ func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 			err := os.Remove(path)
 			if err != nil {
 				warning("skipping %q: file cleanup failed: %v", path, err)
+				return
 			}
+			emptied = append(emptied, parent)
 		}
 	})
+	// removing files can leave a chain of empty directories behind, one per
+	// entry, so remove them after the walk is finished
+	pruneEmptyDirs(emptied, c.BasePath)
 	return nil
+}
+
+// pruneEmptyDirs removes empty directories in dirs, plus any ancestor that become
+// empty as a result. os.Remove fails when a directory holds entries, but this is
+// not an error. It just means the directory is still in use.
+func pruneEmptyDirs(dirs []string, stop string) {
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	sep := string(filepath.Separator)
+	for _, dir := range dirs {
+		for dir != stop && strings.HasPrefix(dir, stop+sep) {
+			if err := os.Remove(dir); err != nil {
+				break
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
 }
 
 func (c *DiskStorage) EntryCount() (int64, error) {

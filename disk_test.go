@@ -53,6 +53,53 @@ func TestDiskStorage(t *testing.T) {
 	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
 	cache.Clear()
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCleanupUnconfiguredKey(t, cache, expireAllEntries)
+}
+
+// TestDiskStorageCleanupRemovesEmptyDirs checks that cleanup does not leave the
+// directory chain of a removed entry behind
+func TestDiskStorageCleanupRemovesEmptyDirs(t *testing.T) {
+	storage, err := NewDiskStorage(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("error while creating disk storage: %s", err)
+	}
+	config := &KeyConfig{TTL: 1, BodyCodec: StringCodec, BodyCompression: NoCompression}
+	expired := time.Now().UTC().Add(-3600 * time.Second)
+	for _, params := range []string{"p1", "p2", "p3"} {
+		if err := storage.Set("api", config, params, []byte("value"), expired); err != nil {
+			t.Fatalf("error while setting entry: %s", err)
+		}
+	}
+
+	if err := storage.Cleanup("api", config, time.Now().UTC()); err != nil {
+		t.Fatalf("unexpected error from Cleanup: %s", err)
+	}
+
+	var dirs []string
+	err = filepath.WalkDir(storage.BasePath, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && path != storage.BasePath {
+			dirs = append(dirs, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("error while walking cache: %s", err)
+	}
+	if len(dirs) != 0 {
+		t.Errorf("expected cleanup to remove the empty directories but found %v", dirs)
+	}
+
+	keys, err := storage.Keys()
+	if err != nil {
+		t.Fatalf("error while fetching cache keys: %s", err)
+	}
+	if len(keys) != 0 {
+		t.Errorf("expected no keys after cleanup but got %v", keys)
+	}
 }
 
 func TestBadCacheKeyPaths(t *testing.T) {

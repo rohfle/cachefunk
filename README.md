@@ -119,12 +119,14 @@ JSON config file:
 }
 ```
 
-The reserved key `cachefunk.DefaultKey` (`"default"`) holds the settings for every cache key that
-has no entry of its own. When a `cachefunk.DefaultKey` key is not present, keys with no entry will
-fall back to the global `cachefunk.DefaultKeyConfig`. 
+The reserved key `cachefunk.DefaultKey` (`"default"`) holds settings for every cache key that has
+no entry of its own. When a `DefaultKey` entry is not present, keys with no entry fall back to the
+global `cachefunk.DefaultKeyConfig`.
 
-Note that `Cleanup` and `ExpiredEntryCount` skip `DefaultKey`, so a cache key literally named `default` 
-is never cleaned or counted.
+`Cleanup` and `ExpiredEntryCount` enumerate cache keys that have entries in storage and retrieve each
+one's config through `Config.Get` (see `CacheStorage.Keys`). Entries cached under a key that
+does not have configuration listed in `Config` - those relying on `DefaultKey` or the global
+`DefaultKeyConfig` - are therefore counted and cleaned up like those that do.
 
 ## Notes about timestamps
 

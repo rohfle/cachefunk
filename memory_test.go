@@ -31,8 +31,10 @@ func TestInMemoryStorage(t *testing.T) {
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		for _, value := range storage.store {
-			value.Timestamp = time.Now().UTC().Add(-3600 * time.Second)
+		for _, paramsMap := range storage.store {
+			for _, value := range paramsMap {
+				value.Timestamp = time.Now().UTC().Add(-3600 * time.Second)
+			}
 		}
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
@@ -42,6 +44,8 @@ func TestInMemoryStorage(t *testing.T) {
 	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
 	cache.Clear()
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCleanupUnconfiguredKey(t, cache, expireAllEntries)
 }
 
 func ExampleInMemoryStorage() {
