@@ -3,6 +3,7 @@ package cachefunk
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -54,7 +55,7 @@ func (c *stringCodec) Marshal(v any) ([]byte, error) {
 	case string:
 		return []byte(val), nil
 	case []byte:
-		return val, nil
+		return slices.Clone(val), nil
 	default:
 		return nil, fmt.Errorf("StringCodec.Marshal: unsupported type %T: expected string or []byte", v)
 	}
