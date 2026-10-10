@@ -62,19 +62,22 @@ func NewDiskStorage(basePath string, pather DiskStoragePather) (*DiskStorage, er
 }
 
 func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, params string) (string, error) {
-	if cacheKey == "" || cacheKey[0] == '.' {
-		return "", fmt.Errorf("cache key cannot be blank or begin with a dot")
+	if cacheKey == "" || cacheKey[0] == '.' || strings.Contains(cacheKey, "../") {
+		return "", fmt.Errorf("cache key cannot be blank, begin with a dot or have '../' in it")
 	}
-	parts := c.CalculatePath(cacheKey, params)
+	basePath := filepath.Join(c.BasePath, cacheKey)
+	parts := c.CalculatePath(params)
 	relPath := filepath.Join(parts...)
-	if strings.HasPrefix(relPath, "..") || strings.HasPrefix(relPath, "/") {
-		return "", fmt.Errorf("generated path %q must be inside cache root", relPath)
+	fullPath := filepath.Join(basePath, relPath)
+	rel, err := filepath.Rel(basePath, fullPath)
+	if err != nil || rel == "" || rel[0] == '.' {
+		return "", fmt.Errorf("generated path %q must be inside cache key root", relPath)
 	}
-	path := filepath.Join(c.BasePath, relPath)
+
 	if compression := config.GetBodyCompression(); compression != NoCompression {
-		path += "." + compression.String()
+		fullPath += "." + compression.String()
 	}
-	return path, nil
+	return fullPath, nil
 }
 
 func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
@@ -123,13 +126,30 @@ func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []
 	if err != nil {
 		return fmt.Errorf("call to os.MkdirAll failed %+v: %v", dirs, err)
 	}
-	err = os.WriteFile(path, value, 0644)
+	tmp, err := os.CreateTemp(dirs, ".cache-*")
 	if err != nil {
-		return fmt.Errorf("call to os.WriteFile failed %q: %v", path, err)
+		return fmt.Errorf("call to os.CreateTemp failed %q: %v", dirs, err)
 	}
-	err = os.Chtimes(path, time.Now().UTC(), timestamp)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err = tmp.Write(value); err != nil {
+		tmp.Close()
+		return fmt.Errorf("call to tmp.Write failed %q: %v", path, err)
+	}
+	if err = tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return fmt.Errorf("call to tmp.Chmod failed %q: %v", path, err)
+	}
+	if err = tmp.Close(); err != nil {
+		return fmt.Errorf("call to tmp.Close failed %q: %v", path, err)
+	}
+	err = os.Chtimes(tmpName, time.Now().UTC(), timestamp)
 	if err != nil {
 		return fmt.Errorf("call to os.Chtimes failed %q: %v", path, err)
+	}
+	err = os.Rename(tmpName, path)
+	if err != nil {
+		return fmt.Errorf("call to os.Rename failed %q: %v", path, err)
 	}
 	return nil
 }
@@ -150,6 +170,10 @@ func (c *DiskStorage) Clear() error {
 // Cleanup will delete all cache entries that have expired
 func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	basePath := filepath.Join(c.BasePath, key)
+	rel, err := filepath.Rel(c.BasePath, basePath)
+	if err != nil || rel == "" || rel[0] == '.' {
+		return fmt.Errorf("generated path %q must be inside cache root", basePath)
+	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return nil // key doesnt exist therefore nothing to do
 	}
@@ -182,6 +206,10 @@ func (c *DiskStorage) EntryCount() (int64, error) {
 func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64
 	basePath := filepath.Join(c.BasePath, key)
+	rel, err := filepath.Rel(c.BasePath, basePath)
+	if err != nil || rel == "" || rel[0] == '.' {
+		return 0, fmt.Errorf("generated path %q must be inside cache root", basePath)
+	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return 0, nil // key doesnt exist therefore count is 0
 	}

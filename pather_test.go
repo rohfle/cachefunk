@@ -5,6 +5,6 @@ import (
 )
 
 func TestPather(t *testing.T) {
-	SHA256HexPather("thisiskey", "thisisparams")
-	SHA256Base64Pather("thisiskey", "thisisparams")
+	SHA256HexPather("thisisparams")
+	SHA256Base64Pather("thisisparams")
 }
