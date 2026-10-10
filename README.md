@@ -37,8 +37,6 @@ Use wrapper functions to cache function output in golang.
 
 import (
 	"fmt"
-	"testing"
-	"time"
 
 	"github.com/rohfle/cachefunk"
 
@@ -54,20 +52,21 @@ func main() {
 	}
 
 	config := cachefunk.Config{
-		Configs: {
-			"hello": {
-				TTL: 3600,
-				// TTLJitter: 0,
-				// FallbackToExpired: false,
-				// BodyCompression: cachefunk.ZstdCompression,
-				// BodyCodec: cachefunk.JSONCodec,
-				// ParamsCodec: cachefunk.JSONParams,
-			}
-		}
+		cachefunk.DefaultKey: {
+			TTL: 3600,
+			// TTLJitter: 300,
+			// FallbackToExpired: false,
+			// BodyCompression: cachefunk.ZstdCompression,
+			// BodyCodec: cachefunk.JSONCodec,
+			// ParamCodec: cachefunk.JSONParams,
+		},
 	}
-	storage := cachefunk.NewGORMStorage(db)
+	storage, err := cachefunk.NewGORMStorage(db)
+	if err != nil {
+		panic("failed to setup cache storage")
+	}
 	cache := cachefunk.CacheFunk{
-		Config: config,
+		Config:  config,
 		Storage: storage,
 	}
 
@@ -83,7 +82,7 @@ func main() {
 	}
 
 	// Wrap the function
-	HelloWorld := cachefunk.WrapWithIgnore(cache, "hello", helloWorldRaw)
+	HelloWorld := cachefunk.WrapWithIgnore(&cache, "hello", helloWorldRaw)
 
 	// First call will get value from wrapped function
 	value, err := HelloWorld(false, &HelloWorldParams{
@@ -107,6 +106,25 @@ func main() {
 - Cache
 - CacheWithIgnore
 - CacheWithContext
+
+## Config
+
+`Config` is a `map[string]*KeyConfig` keyed by cache key, and can be loaded directly from a
+JSON config file:
+
+```json
+{
+	"default": {"ttl": 3600},
+	"hello": {"ttl": 60, "ttl_jitter": 10}
+}
+```
+
+The reserved key `cachefunk.DefaultKey` (`"default"`) holds the settings for every cache key that
+has no entry of its own. When a `cachefunk.DefaultKey` key is not present, keys with no entry will
+fall back to the global `cachefunk.DefaultKeyConfig`. 
+
+Note that `Cleanup` and `ExpiredEntryCount` skip `DefaultKey`, so a cache key literally named `default` 
+is never cleaned or counted.
 
 ## Notes about timestamps
 

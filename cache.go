@@ -28,7 +28,7 @@ func SetIgnoreCacheInContext(ctx context.Context, value bool) context.Context {
 }
 
 type CacheFunk struct {
-	Config  *Config
+	Config  Config
 	Storage CacheStorage
 }
 
@@ -104,8 +104,8 @@ func (c *CacheFunk) EntryCount() (int64, error) {
 func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 	var count int64
 	now := time.Now().UTC()
-	for key, config := range c.Config.Configs {
-		if config.TTL == TTLEntryNeverExpires {
+	for key, config := range c.Config {
+		if key == DefaultKey || config.TTL == TTLEntryNeverExpires {
 			continue
 		}
 		expireBeforeTime := config.GetExpireTime(now)
@@ -124,8 +124,8 @@ func (c *CacheFunk) Clear() error {
 
 func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 	now := time.Now().UTC()
-	for key, config := range c.Config.Configs {
-		if config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !forceCleanupExpired) {
+	for key, config := range c.Config {
+		if key == DefaultKey || config.TTL == TTLEntryNeverExpires || (config.FallbackToExpired && !forceCleanupExpired) {
 			continue
 		}
 		expireBeforeTime := config.GetExpireTime(now)

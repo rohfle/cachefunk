@@ -7,7 +7,7 @@ import (
 )
 
 func TestInMemoryStorage(t *testing.T) {
-	config := &Config{}
+	config := Config{}
 
 	storage := NewInMemoryStorage()
 
@@ -53,7 +53,7 @@ func ExampleInMemoryStorage() {
 		return "Hello " + params.Name, nil
 	}
 
-	config := &Config{}
+	config := Config{}
 
 	cache := &CacheFunk{
 		Config:  config,

@@ -33,6 +33,10 @@ var DefaultBodyCodec = JSONCodec
 var DefaultBodyCompression = ZstdCompression
 var DefaultParamCodec = JSONParams
 
+// DefaultKey is the config key under which default settings are stored for
+// cache keys that do not have their own settings.
+const DefaultKey = "default"
+
 // DefaultKeyConfig holds the settings for any key that does not have config defined
 var DefaultKeyConfig = &KeyConfig{
 	TTL:               3600,
@@ -43,18 +47,19 @@ var DefaultKeyConfig = &KeyConfig{
 	ParamCodec:        DefaultParamCodec,
 }
 
-// Config stores the various settings for different cached endpoints
-type Config struct {
-	Defaults *KeyConfig
-	Configs  map[string]*KeyConfig
-}
+// Config stores settings for different cached endpoints by key.
+// It is a map that can be loaded directly from a JSON file.
+// A nil Config is valid: every key then resolves to DefaultKeyConfig.
+type Config map[string]*KeyConfig
 
-// Get returns the cache config for key
-func (c *Config) Get(key string) *KeyConfig {
-	if value, exists := c.Configs[key]; exists {
+// Get returns the cache config given a key: first the key's own entry, then
+// if that does not exist the reserved DefaultKey entry. If DefaultKey entry
+// does not exist then the global DefaultKeyConfig will be returned.
+func (c Config) Get(key string) *KeyConfig {
+	if value, exists := c[key]; exists {
 		return value
-	} else if c.Defaults != nil {
-		return c.Defaults
+	} else if value, exists := c[DefaultKey]; exists {
+		return value
 	} else {
 		return DefaultKeyConfig
 	}

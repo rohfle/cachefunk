@@ -12,7 +12,7 @@ import (
 )
 
 func TestDiskStorage(t *testing.T) {
-	config := &Config{}
+	config := Config{}
 
 	storage, err := NewDiskStorage(t.TempDir(), nil)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestDiskStorage(t *testing.T) {
 }
 
 func TestBadCacheKeyPaths(t *testing.T) {
-	config := &Config{}
+	config := Config{}
 
 	tempDir := t.TempDir()
 
@@ -253,7 +253,7 @@ func ExampleDiskStorage() {
 		return "Hello " + params.Name, nil
 	}
 
-	config := &Config{}
+	config := Config{}
 	storage, err := NewDiskStorage("/path/to/cache", DefaultDiskStoragePather)
 	if err != nil {
 		fmt.Printf("Error while creating disk storage: %s\n", err)

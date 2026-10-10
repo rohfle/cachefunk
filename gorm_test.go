@@ -20,7 +20,7 @@ func TestGORMStorage(t *testing.T) {
 		t.Fatal("failed to connect database")
 	}
 
-	config := &Config{}
+	config := Config{}
 	storage, err := NewGORMStorage(db)
 	if err != nil {
 		t.Fatal("failed to setup gorm cache storage")
@@ -72,7 +72,7 @@ func ExampleGORMStorage() {
 		panic("failed to connect database")
 	}
 
-	config := &Config{}
+	config := Config{}
 	storage, err := NewGORMStorage(db)
 	if err != nil {
 		panic("failed to setup gorm cache storage")

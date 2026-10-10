@@ -1,8 +1,8 @@
 module github.com/rohfle/cachefunk
 
-go 1.23.0
+go 1.24.0
 
-toolchain go1.23.5
+toolchain go1.24.4
 
 require gorm.io/gorm v1.30.0
 

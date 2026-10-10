@@ -10,11 +10,9 @@ import (
 )
 
 func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"bad":  {TTL: 1},
-			"good": {TTL: 1},
-		},
+	cache.Config = Config{
+		"bad":  {TTL: 1},
+		"good": {TTL: 1},
 	}
 
 	type BadParams struct {
@@ -77,44 +75,42 @@ func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"noop_NoCache": {
-				TTL:             TTLEntryImmediatelyExpires,
-				TTLJitter:       0,
-				BodyCodec:       StringCodec,
-				BodyCompression: NoCompression,
-			},
-			"noop_CacheTTL": {
-				TTL:             1,
-				TTLJitter:       0,
-				BodyCodec:       StringCodec,
-				BodyCompression: NoCompression,
-			},
-			"noop_CacheTTLWithJitter": {
-				TTL:             30,
-				TTLJitter:       1,
-				BodyCodec:       StringCodec,
-				BodyCompression: NoCompression,
-			},
-			"noop_CacheTTLNegative": {
-				TTL:             -2121,
-				TTLJitter:       1,
-				BodyCodec:       StringCodec,
-				BodyCompression: NoCompression,
-			},
-			"noop_CacheTTLHuge": {
-				TTL:             9223370000,
-				TTLJitter:       1,
-				BodyCodec:       StringCodec,
-				BodyCompression: NoCompression,
-			},
-			"noop_CacheTTLForever": {
-				TTL:             TTLEntryNeverExpires,
-				TTLJitter:       1,
-				BodyCodec:       StringCodec,
-				BodyCompression: NoCompression,
-			},
+	cache.Config = Config{
+		"noop_NoCache": {
+			TTL:             TTLEntryImmediatelyExpires,
+			TTLJitter:       0,
+			BodyCodec:       StringCodec,
+			BodyCompression: NoCompression,
+		},
+		"noop_CacheTTL": {
+			TTL:             1,
+			TTLJitter:       0,
+			BodyCodec:       StringCodec,
+			BodyCompression: NoCompression,
+		},
+		"noop_CacheTTLWithJitter": {
+			TTL:             30,
+			TTLJitter:       1,
+			BodyCodec:       StringCodec,
+			BodyCompression: NoCompression,
+		},
+		"noop_CacheTTLNegative": {
+			TTL:             -2121,
+			TTLJitter:       1,
+			BodyCodec:       StringCodec,
+			BodyCompression: NoCompression,
+		},
+		"noop_CacheTTLHuge": {
+			TTL:             9223370000,
+			TTLJitter:       1,
+			BodyCodec:       StringCodec,
+			BodyCompression: NoCompression,
+		},
+		"noop_CacheTTLForever": {
+			TTL:             TTLEntryNeverExpires,
+			TTLJitter:       1,
+			BodyCodec:       StringCodec,
+			BodyCompression: NoCompression,
 		},
 	}
 
@@ -211,10 +207,8 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 }
 
 func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true, BodyCompression: GzipCompression},
-		},
+	cache.Config = Config{
+		"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true, BodyCompression: GzipCompression},
 	}
 
 	callCount := 0
@@ -239,7 +233,7 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireA
 		t.Fatal("expected 1 cache entries after CacheTTL() but got", count)
 	}
 
-	cache.Config.Configs["hello_CacheTTL"] = &KeyConfig{
+	cache.Config["hello_CacheTTL"] = &KeyConfig{
 		TTL:             1,
 		TTLJitter:       0,
 		BodyCompression: NoCompression,
@@ -259,10 +253,8 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireA
 }
 
 func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true},
-		},
+	cache.Config = Config{
+		"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true},
 	}
 
 	callCount := 0
@@ -342,10 +334,8 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 }
 
 func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true},
-		},
+	cache.Config = Config{
+		"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true},
 	}
 
 	callCount := 0
@@ -423,10 +413,8 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 }
 
 func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"failWorld": {TTL: 5, TTLJitter: 1},
-		},
+	cache.Config = Config{
+		"failWorld": {TTL: 5, TTLJitter: 1},
 	}
 
 	failWorld := func(ignoreCache bool, params *HelloWorldParams) (string, error) {
@@ -463,10 +451,8 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"failWorld": {TTL: 5, TTLJitter: 1},
-		},
+	cache.Config = Config{
+		"failWorld": {TTL: 5, TTLJitter: 1},
 	}
 
 	failWorld := func(ctx context.Context, params *HelloWorldParams) (string, error) {
@@ -503,10 +489,8 @@ func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestWrapWithStringResult(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"helloWorld": {TTL: 5, TTLJitter: 1, BodyCompression: NoCompression},
-		},
+	cache.Config = Config{
+		"helloWorld": {TTL: 5, TTLJitter: 1, BodyCompression: NoCompression},
 	}
 
 	helloCounter := 0
@@ -558,10 +542,8 @@ func runTestWrapWithStringResult(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestWrapWithContextAndStringResult(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"helloWorld": {TTL: 5, TTLJitter: 1},
-		},
+	cache.Config = Config{
+		"helloWorld": {TTL: 5, TTLJitter: 1},
 	}
 
 	helloCounter := 0
@@ -614,21 +596,19 @@ func runTestWrapWithContextAndStringResult(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Configs: map[string]*KeyConfig{
-			"helloWorld": {
-				TTL:             5,
-				TTLJitter:       1,
-				BodyCodec:       MsgPackCodec,
-				BodyCompression: BrotliCompression,
-				ParamCodec:      JSONBase64Params,
-			},
-			"helloWorld2": {
-				TTL:             5,
-				BodyCodec:       JSONCodec,
-				BodyCompression: GzipCompression,
-				ParamCodec:      JSONParams,
-			},
+	cache.Config = Config{
+		"helloWorld": {
+			TTL:             5,
+			TTLJitter:       1,
+			BodyCodec:       MsgPackCodec,
+			BodyCompression: BrotliCompression,
+			ParamCodec:      JSONBase64Params,
+		},
+		"helloWorld2": {
+			TTL:             5,
+			BodyCodec:       JSONCodec,
+			BodyCompression: GzipCompression,
+			ParamCodec:      JSONParams,
 		},
 	}
 
@@ -762,11 +742,9 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Defaults: &KeyConfig{TTL: 5, TTLJitter: 1},
-		Configs: map[string]*KeyConfig{
-			"helloWorld": {TTL: 5, TTLJitter: 1},
-		},
+	cache.Config = Config{
+		DefaultKey:   &KeyConfig{TTL: 5, TTLJitter: 1},
+		"helloWorld": {TTL: 5, TTLJitter: 1},
 	}
 
 	helloCounter := 0
@@ -880,11 +858,9 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
 }
 
 func runTestWrapAndObjectResult(t *testing.T, cache *CacheFunk) {
-	cache.Config = &Config{
-		Defaults: &KeyConfig{TTL: 5, TTLJitter: 1},
-		Configs: map[string]*KeyConfig{
-			"helloWorld": {TTL: 5, TTLJitter: 1},
-		},
+	cache.Config = Config{
+		DefaultKey:   &KeyConfig{TTL: 5, TTLJitter: 1},
+		"helloWorld": {TTL: 5, TTLJitter: 1},
 	}
 
 	helloCounter := 0
