@@ -61,11 +61,18 @@ func NewDiskStorage(basePath string, pather DiskStoragePather) (*DiskStorage, er
 	return &cache, nil
 }
 
-func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, params string) (string, error) {
-	if cacheKey == "" || cacheKey[0] == '.' || strings.Contains(cacheKey, "../") {
-		return "", fmt.Errorf("cache key cannot be blank, begin with a dot or have '../' in it")
+func (c *DiskStorage) keyPath(cacheKey string) (string, error) {
+	if cacheKey == "" || cacheKey[0] == '.' || strings.Contains(cacheKey, "..") {
+		return "", fmt.Errorf("cache key cannot be blank, begin with a dot or have '..' in it")
 	}
-	basePath := filepath.Join(c.BasePath, cacheKey)
+	return filepath.Join(c.BasePath, cacheKey), nil
+}
+
+func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, params string) (string, error) {
+	basePath, err := c.keyPath(cacheKey)
+	if err != nil {
+		return "", err
+	}
 	parts := c.CalculatePath(params)
 	relPath := filepath.Join(parts...)
 	fullPath := filepath.Join(basePath, relPath)
@@ -169,10 +176,9 @@ func (c *DiskStorage) Clear() error {
 
 // Cleanup will delete all cache entries that have expired
 func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
-	basePath := filepath.Join(c.BasePath, key)
-	rel, err := filepath.Rel(c.BasePath, basePath)
-	if err != nil || rel == "" || rel[0] == '.' {
-		return fmt.Errorf("generated path %q must be inside cache root", basePath)
+	basePath, err := c.keyPath(key)
+	if err != nil {
+		return fmt.Errorf("Cleanup: %w", err)
 	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return nil // key doesnt exist therefore nothing to do
@@ -205,10 +211,9 @@ func (c *DiskStorage) EntryCount() (int64, error) {
 
 func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64
-	basePath := filepath.Join(c.BasePath, key)
-	rel, err := filepath.Rel(c.BasePath, basePath)
-	if err != nil || rel == "" || rel[0] == '.' {
-		return 0, fmt.Errorf("generated path %q must be inside cache root", basePath)
+	basePath, err := c.keyPath(key)
+	if err != nil {
+		return 0, fmt.Errorf("ExpiredEntryCount: %w", err)
 	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return 0, nil // key doesnt exist therefore count is 0
