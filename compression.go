@@ -45,16 +45,12 @@ type zstdCompression struct{}
 var ZstdCompression = &zstdCompression{}
 
 // Create a decoder and encoder for Compress and Decompress
-// EncodeAll and DecodeAll have no per call state and are safe for concurrent use
-// so encoder buffers are allocated once rather than on every cache read and write.
 var (
 	zstdEncoder = newZstdEncoder()
 	zstdDecoder = newZstdDecoder()
 )
 
 func newZstdEncoder() *zstd.Encoder {
-	// Keep zstd concurrency at 1 because multi-threaded compression only helps
-	// with large files and adds overhead for small payloads.
 	// WithZeroFrames means an empty payload compresses to a valid, non empty frame,
 	// so an empty cached value is not confused with a missing entry.
 	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1), zstd.WithZeroFrames(true))
@@ -66,9 +62,7 @@ func newZstdEncoder() *zstd.Encoder {
 }
 
 func newZstdDecoder() *zstd.Decoder {
-	// Keep zstd concurrency at 1 because multi-threaded decompression only helps
-	// with large files and adds overhead for small payloads.
-	decoder, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
+	decoder, err := zstd.NewReader(nil)
 	if err != nil {
 		// only fails if options are invalid above
 		panic(fmt.Errorf("failed to create zstd decoder: %w", err))
