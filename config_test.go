@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -16,6 +17,28 @@ func TestConfigIncomplete(t *testing.T) {
 		t.Fatalf("expected non-existent key to resolve to DefaultKeyConfig but got %+v instead (type=%T)", result, result)
 	}
 
+}
+
+// TestConfigGetConcurrent hammers Config.Get on a fresh &Config{} from many
+// goroutines. Its real value is under `go test -race`: a reintroduced write to
+// c.Configs would be reported as a data race.
+func TestConfigGetConcurrent(t *testing.T) {
+	cfg := &Config{}
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				if got := cfg.Get("key"); got == nil {
+					t.Errorf("Config.Get returned nil")
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestConfigMarshalUnmarshal(t *testing.T) {

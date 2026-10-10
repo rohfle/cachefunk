@@ -49,10 +49,8 @@ type Config struct {
 	Configs  map[string]*KeyConfig
 }
 
+// Get returns the cache config for key
 func (c *Config) Get(key string) *KeyConfig {
-	if c.Configs == nil {
-		c.Configs = make(map[string]*KeyConfig)
-	}
 	if value, exists := c.Configs[key]; exists {
 		return value
 	} else if c.Defaults != nil {
