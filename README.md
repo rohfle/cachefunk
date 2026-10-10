@@ -12,7 +12,7 @@ Use wrapper functions to cache function output in golang.
 	- any GORM-supported database
 	- in-memory caching
 	- files on disk
-- Custom marshal / unmarshal: json, msgpack, string
+- Custom marshal / unmarshal: json, string
 - Compression: zstd, or none
 - Configurable TTL and TTL jitter
 - Configurable fallback to expired when downstream fails

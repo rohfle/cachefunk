@@ -742,7 +742,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		"helloWorld": {
 			TTL:             5,
 			TTLJitter:       1,
-			BodyCodec:       MsgPackCodec,
+			BodyCodec:       JSONCodec,
 			BodyCompression: ZstdCompression,
 			ParamCodec:      JSONBase64Params,
 		},

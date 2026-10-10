@@ -101,7 +101,7 @@ func TestConfigMarshalUnmarshal(t *testing.T) {
 			TTL:               1,
 			TTLJitter:         1,
 			FallbackToExpired: true,
-			BodyCodec:         MsgPackCodec,
+			BodyCodec:         JSONCodec,
 			BodyCompression:   ZstdCompression,
 			ParamCodec:        JSONBase64Params,
 		},

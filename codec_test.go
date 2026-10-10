@@ -9,7 +9,6 @@ import (
 func TestBodyCodecs(t *testing.T) {
 	var codecs = []BodyCodec{
 		JSONCodec,
-		MsgPackCodec,
 	}
 
 	type AAA struct {

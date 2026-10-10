@@ -6,17 +6,13 @@ toolchain go1.24.4
 
 require gorm.io/gorm v1.30.0
 
-require (
-	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
-)
+require golang.org/x/text v0.25.0 // indirect
 
 require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.18.0
 	github.com/mattn/go-sqlite3 v1.14.16 // indirect
-	github.com/vmihailenco/msgpack/v5 v5.4.1
 	gorm.io/driver/sqlite v1.4.4
 )
 

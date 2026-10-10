@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 type BodyCodec interface {
@@ -28,22 +26,6 @@ func (c *jsonCodec) Unmarshal(data []byte, v any) error {
 
 func (c *jsonCodec) String() string {
 	return "json"
-}
-
-type msgpackCodec struct{}
-
-var MsgPackCodec = &msgpackCodec{}
-
-func (c *msgpackCodec) Marshal(v any) ([]byte, error) {
-	return msgpack.Marshal(v)
-}
-
-func (c *msgpackCodec) Unmarshal(data []byte, v any) error {
-	return msgpack.Unmarshal(data, v)
-}
-
-func (c *msgpackCodec) String() string {
-	return "msgpack"
 }
 
 type stringCodec struct{}
@@ -79,7 +61,6 @@ func (c *stringCodec) String() string {
 }
 
 var codecMap = map[string]BodyCodec{
-	StringCodec.String():  StringCodec,
-	JSONCodec.String():    JSONCodec,
-	MsgPackCodec.String(): MsgPackCodec,
+	StringCodec.String(): StringCodec,
+	JSONCodec.String():   JSONCodec,
 }
