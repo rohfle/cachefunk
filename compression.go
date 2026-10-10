@@ -1,11 +1,9 @@
 package cachefunk
 
 import (
-	"bytes"
-	"compress/gzip"
+	"fmt"
 	"io"
 
-	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -42,110 +40,73 @@ func (g *noCompression) String() string {
 	return "none"
 }
 
-type gzipCompression struct{}
-
-var GzipCompression = &gzipCompression{}
-
-func (g *gzipCompression) CompressAndWrite(w io.Writer, data []byte) error {
-	gw := gzip.NewWriter(w)
-	defer gw.Close()
-	_, err := gw.Write(data)
-	return err
-}
-
-func (g *gzipCompression) ReadAndDecompress(r io.Reader) ([]byte, error) {
-	gr, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, err
-	}
-	defer gr.Close()
-	return io.ReadAll(gr)
-}
-
-func (g *gzipCompression) Compress(input []byte) ([]byte, error) {
-	var output bytes.Buffer
-	err := g.CompressAndWrite(&output, input)
-	if err != nil {
-		return nil, err
-	}
-	return output.Bytes(), nil
-}
-
-func (g *gzipCompression) Decompress(input []byte) ([]byte, error) {
-	return g.ReadAndDecompress(bytes.NewReader(input))
-}
-
-func (g *gzipCompression) String() string {
-	return "gzip"
-}
-
-type brotliCompression struct{}
-
-var BrotliCompression = &brotliCompression{}
-
-func (g *brotliCompression) CompressAndWrite(w io.Writer, data []byte) error {
-	gw := brotli.NewWriter(w)
-	defer gw.Close()
-	_, err := gw.Write(data)
-	return err
-}
-
-func (g *brotliCompression) ReadAndDecompress(r io.Reader) ([]byte, error) {
-	gr := brotli.NewReader(r)
-	return io.ReadAll(gr)
-}
-
-func (g *brotliCompression) Compress(input []byte) ([]byte, error) {
-	var output bytes.Buffer
-	err := g.CompressAndWrite(&output, input)
-	if err != nil {
-		return nil, err
-	}
-	return output.Bytes(), nil
-}
-
-func (g *brotliCompression) Decompress(input []byte) ([]byte, error) {
-	return g.ReadAndDecompress(bytes.NewReader(input))
-}
-
-func (g *brotliCompression) String() string {
-	return "brotli"
-}
-
 type zstdCompression struct{}
 
 var ZstdCompression = &zstdCompression{}
 
-func (g *zstdCompression) CompressAndWrite(w io.Writer, data []byte) error {
-	gw, err := zstd.NewWriter(w)
+// Create a decoder and encoder for Compress and Decompress
+// EncodeAll and DecodeAll have no per call state and are safe for concurrent use
+// so encoder buffers are allocated once rather than on every cache read and write.
+var (
+	zstdEncoder = newZstdEncoder()
+	zstdDecoder = newZstdDecoder()
+)
+
+func newZstdEncoder() *zstd.Encoder {
+	// Keep zstd concurrency at 1 because multi-threaded compression only helps
+	// with large files and adds overhead for small payloads.
+	// WithZeroFrames means an empty payload compresses to a valid, non empty frame,
+	// so an empty cached value is not confused with a missing entry.
+	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1), zstd.WithZeroFrames(true))
 	if err != nil {
-		return err
+		// only fails if options are invalid above
+		panic(fmt.Errorf("failed to create zstd encoder: %w", err))
 	}
-	defer gw.Close()
-	_, err = gw.Write(data)
-	return err
+	return encoder
 }
 
-func (g *zstdCompression) ReadAndDecompress(r io.Reader) ([]byte, error) {
-	gr, err := zstd.NewReader(r)
+func newZstdDecoder() *zstd.Decoder {
+	// Keep zstd concurrency at 1 because multi-threaded decompression only helps
+	// with large files and adds overhead for small payloads.
+	decoder, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
 	if err != nil {
-		return nil, err
+		// only fails if options are invalid above
+		panic(fmt.Errorf("failed to create zstd decoder: %w", err))
 	}
-	defer gr.Close()
-	return io.ReadAll(gr)
+	return decoder
 }
 
 func (g *zstdCompression) Compress(input []byte) ([]byte, error) {
-	var output bytes.Buffer
-	err := g.CompressAndWrite(&output, input)
-	if err != nil {
-		return nil, err
-	}
-	return output.Bytes(), nil
+	return zstdEncoder.EncodeAll(input, make([]byte, 0, len(input)/2+64)), nil
 }
 
 func (g *zstdCompression) Decompress(input []byte) ([]byte, error) {
-	return g.ReadAndDecompress(bytes.NewReader(input))
+	// a nil destination lets the decoder size the output from the frame header
+	return zstdDecoder.DecodeAll(input, nil)
+}
+
+func (g *zstdCompression) CompressAndWrite(w io.Writer, data []byte) error {
+	writer, err := zstd.NewWriter(w, zstd.WithEncoderConcurrency(1), zstd.WithZeroFrames(true))
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(data); err != nil {
+		writer.Close()
+		return err
+	}
+	// Close flushes the final frame, so this is where a writer that only fails on
+	// flush (disk full, closed connection) reports itself. The error must not be
+	// discarded by a deferred Close, or the frame is silently truncated.
+	return writer.Close()
+}
+
+func (g *zstdCompression) ReadAndDecompress(r io.Reader) ([]byte, error) {
+	reader, err := zstd.NewReader(r, zstd.WithDecoderConcurrency(1))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
 }
 
 func (g *zstdCompression) String() string {
@@ -153,8 +114,6 @@ func (g *zstdCompression) String() string {
 }
 
 var compressionMap = map[string]Compression{
-	NoCompression.String():     NoCompression,
-	GzipCompression.String():   GzipCompression,
-	BrotliCompression.String(): BrotliCompression,
-	ZstdCompression.String():   ZstdCompression,
+	NoCompression.String():   NoCompression,
+	ZstdCompression.String(): ZstdCompression,
 }

@@ -46,6 +46,9 @@ func TestInMemoryStorage(t *testing.T) {
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
 	cache.Clear()
 	runTestCleanupUnconfiguredKey(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheCompressedPayload(t, cache)
+	cache.Clear()
 }
 
 func ExampleInMemoryStorage() {

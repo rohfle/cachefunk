@@ -1,10 +1,13 @@
 package cachefunk
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 )
@@ -66,6 +69,85 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 	}
 	if len(keys) != 0 {
 		t.Errorf("expected no keys after cleanup but got %v", keys)
+	}
+}
+
+// runTestCacheCompressedPayload covers caching a payload that is already
+// compressed on the wire (see the README section "Caching already-compressed
+// payloads"): StringCodec with NoCompression stores the bytes exactly as
+// received, and the content encoding is part of the params so that entries for
+// the different encodings cannot collide.
+func runTestCacheCompressedPayload(t *testing.T, cache *CacheFunk) {
+	cache.Config = Config{
+		"upstream": {TTL: 3600, BodyCodec: StringCodec, BodyCompression: NoCompression},
+	}
+
+	type Params struct {
+		URL      string
+		Encoding string
+	}
+
+	// the upstream body as it arrives on the wire
+	var wire bytes.Buffer
+	writer := gzip.NewWriter(&wire)
+	if _, err := writer.Write([]byte(`{"hello":"world","n":12345}`)); err != nil {
+		t.Fatalf("unexpected error while building the test payload: %s", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("unexpected error while building the test payload: %s", err)
+	}
+	body := wire.Bytes()
+
+	calls := 0
+	fetch := func(ignoreCache bool, params *Params) ([]byte, error) {
+		calls++
+		return body, nil
+	}
+	Fetch := WrapWithIgnore(cache, "upstream", fetch)
+
+	first, err := Fetch(false, &Params{URL: "/api/thing", Encoding: "gzip"})
+	if err != nil {
+		t.Fatalf("unexpected error while caching a compressed payload: %s", err)
+	}
+	if !bytes.Equal(first, body) {
+		t.Errorf("expected the payload to come back unchanged but got %d bytes instead of %d", len(first), len(body))
+	}
+
+	second, err := Fetch(false, &Params{URL: "/api/thing", Encoding: "gzip"})
+	if err != nil {
+		t.Fatalf("unexpected error on the second call: %s", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected the second call to be served from the cache but the resolver was called %d times", calls)
+	}
+	if !bytes.Equal(second, body) {
+		t.Errorf("cached payload is not byte identical to what was stored")
+	}
+
+	// the payload is still compressed: a consumer can decode it even though the
+	// cache never decompressed it
+	reader, err := gzip.NewReader(bytes.NewReader(second))
+	if err != nil {
+		t.Fatalf("cached payload is no longer a valid gzip stream: %s", err)
+	}
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("unexpected error while decoding the cached payload: %s", err)
+	}
+	if string(decoded) != `{"hello":"world","n":12345}` {
+		t.Errorf("decoded cached payload is wrong: %s", decoded)
+	}
+
+	// a different content encoding is a different cache entry
+	if _, err := Fetch(false, &Params{URL: "/api/thing", Encoding: "identity"}); err != nil {
+		t.Fatalf("unexpected error while caching a second encoding: %s", err)
+	}
+	count, err := cache.EntryCount()
+	if err != nil {
+		t.Fatalf("expected 2 entries but got error %s", err)
+	}
+	if count != 2 {
+		t.Errorf("expected the content encoding to be part of the cache key but got %d entries", count)
 	}
 }
 
@@ -268,7 +350,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 
 func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
 	cache.Config = Config{
-		"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true, BodyCompression: GzipCompression},
+		"hello_CacheTTL": {TTL: 1, TTLJitter: 0, FallbackToExpired: true, BodyCompression: ZstdCompression},
 	}
 
 	callCount := 0
@@ -661,13 +743,13 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 			TTL:             5,
 			TTLJitter:       1,
 			BodyCodec:       MsgPackCodec,
-			BodyCompression: BrotliCompression,
+			BodyCompression: ZstdCompression,
 			ParamCodec:      JSONBase64Params,
 		},
 		"helloWorld2": {
 			TTL:             5,
 			BodyCodec:       JSONCodec,
-			BodyCompression: GzipCompression,
+			BodyCompression: ZstdCompression,
 			ParamCodec:      JSONParams,
 		},
 	}
@@ -771,7 +853,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	// test compression with bad gzipped value
+	// test compression with bad zstd value
 	keyConfig := cache.Config.Get("helloWorld2")
 	params := &HelloWorldParams{"Bob", 43}
 	paramsRendered, _ := keyConfig.GetParamCodec().Marshal(params)
@@ -785,7 +867,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 	result, err := HelloWorld2(false, params)
 	EnableWarnings()
 	if err != nil {
-		t.Errorf("testing gzip bad decompression: %s", err)
+		t.Errorf("testing zstd bad decompression: %s", err)
 	} else if result.Result == "something else" {
 		t.Errorf("got unexpected poisoned value")
 	}

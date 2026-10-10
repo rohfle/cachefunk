@@ -55,6 +55,9 @@ func TestDiskStorage(t *testing.T) {
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
 	cache.Clear()
 	runTestCleanupUnconfiguredKey(t, cache, expireAllEntries)
+	cache.Clear()
+	runTestCacheCompressedPayload(t, cache)
+	cache.Clear()
 }
 
 // TestDiskStorageCleanupRemovesEmptyDirs checks that cleanup does not leave the

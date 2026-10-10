@@ -13,7 +13,7 @@ Use wrapper functions to cache function output in golang.
 	- in-memory caching
 	- files on disk
 - Custom marshal / unmarshal: json, msgpack, string
-- Compression: zstd, gzip, brotli
+- Compression: zstd, or none
 - Configurable TTL and TTL jitter
 - Configurable fallback to expired when downstream fails
 - Cleanup function for periodic removal of expired entries

@@ -94,7 +94,7 @@ func TestConfigMarshalUnmarshal(t *testing.T) {
 			TTLJitter:         1,
 			FallbackToExpired: true,
 			BodyCodec:         JSONCodec,
-			BodyCompression:   GzipCompression,
+			BodyCompression:   ZstdCompression,
 			ParamCodec:        JSONParams,
 		},
 		"test2": {
@@ -110,7 +110,7 @@ func TestConfigMarshalUnmarshal(t *testing.T) {
 			TTLJitter:         1,
 			FallbackToExpired: true,
 			BodyCodec:         StringCodec,
-			BodyCompression:   BrotliCompression,
+			BodyCompression:   ZstdCompression,
 		},
 		"test4": {
 			TTL:               1,
