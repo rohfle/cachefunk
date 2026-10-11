@@ -349,6 +349,9 @@ func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
 	if err == nil {
 		t.Fatal("expected error for function that returns unserializable result")
 	}
+	if !errors.Is(err, ErrCannotSerialise) {
+		t.Errorf("expected ErrCannotSerialise but got %s", err)
+	}
 
 	badFunctionCtx := func(ctx context.Context, params *BadParams) (func(), error) {
 		return func() {}, nil
@@ -375,6 +378,9 @@ func runTestCachePoisoning(t *testing.T, cache *CacheFunk) {
 	_, err = BadFunctionCtx(ctx, nil)
 	if err == nil {
 		t.Fatal("expected error for function that returns unserializable result")
+	}
+	if !errors.Is(err, ErrCannotSerialise) {
+		t.Errorf("expected ErrCannotSerialise but got %s", err)
 	}
 
 }

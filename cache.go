@@ -23,10 +23,11 @@ var (
 
 type LazyLoad func(any) error
 
-// errCannotSerialise marks a value the cache cannot represent at all, such as an
-// unsupported result type for the configured BodyCodec. Unlike a storage failure
-// the same value will fail every time so an error must be returned to the caller.
-var errCannotSerialise = errors.New("value cannot be serialised")
+// ErrCannotSerialise is returned when a value cannot be represented in the cache
+// at all, such as an unsupported result type for the configured BodyCodec. Unlike
+// storage failures, this is deterministic so callers get the error rather than
+// it being warned about and ignored.
+var ErrCannotSerialise = errors.New("value cannot be serialised")
 
 type ignoreCacheKey struct{}
 
@@ -139,7 +140,7 @@ func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any)
 	if err != nil {
 		// a value that cannot be represented in the cache is a problem with the
 		// result type or codec rather than the storage, so it is marked as such
-		return fmt.Errorf("%w: %w", errCannotSerialise, err)
+		return fmt.Errorf("%w: %w", ErrCannotSerialise, err)
 	}
 
 	return c.Storage.Set(key, config, params, valueData, timestamp)
@@ -391,7 +392,7 @@ func cacheImpl[Params any, ResultType any](
 		case rerr == nil:
 			// call to resolver was successful, set value in cache
 			if serr := cache.Set(key, config, paramStr, result); serr != nil {
-				if errors.Is(serr, errCannotSerialise) {
+				if errors.Is(serr, ErrCannotSerialise) {
 					// this value will never be cacheable
 					cache.faults.serialiseErrors.Add(1)
 					return result, fmt.Errorf("set cache failed for key=%q paramStr=%s: %w", key, shortParams(paramStr), serr)

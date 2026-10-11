@@ -9,7 +9,7 @@ Use wrapper functions to cache function output in golang.
 ## Features
 
 - Currently supported cache adapters:
-	- any GORM-supported database
+	- PostgreSQL and SQLite, through GORM (other GORM databases untested)
 	- in-memory caching
 	- files on disk
 - Custom marshal / unmarshal: json, string
@@ -128,8 +128,8 @@ global `cachefunk.DefaultKeyConfig`.
 entry's lifetime past two times its TTL.
 
 Params are serialised arguments that identify an entry. The database storage uses a sha256 of params
-for indexing rather than the value, as index entries have limits (about 2.7 KB in PostgreSQL, 3 KB in MySQL).
-The value itself is still stored to confirm a match and for debugging purposes.
+for indexing rather than the value, as index entries have limits of about 2.7 KB in PostgreSQL.
+The params themselves are still stored to confirm a match and for debugging purposes.
 
 `Cleanup` and `ExpiredEntryCount` enumerate cache keys that have entries in storage and retrieve each
 one's config through `Config.Get` (see `CacheStorage.Keys`). Entries cached under a key that
@@ -179,33 +179,46 @@ cache that cannot be written to warns once rather than once per call. Setting `S
 
 ## Version History
 
-* unreleased
-	* Coalesce concurrent cache misses into one retrieve, with per caller context handling
-	* Return ErrReentrantCall for a resolver that calls back for the key+params it is resolving
-	* Return resolver panics as errors to the callers waiting on the flight
-	* Module now requires go 1.26, adding golang.org/x/sync for the flight group
-	* Removed brotli, msgpack, gzip support
-	* Cap TTLJitter to TTL
-	* Honour ErrDoNotCache when a resolver wraps it with an error
-	* Treat a nil entry in Config as unset rather than panicking
-	* Quote column names in GORM storage queries, for databases where key is reserved
-	* Added a (key, timestamp) index so cleanup and expired counting are index
-	  scans, and dropped the implicit transaction around each write.
-	  `AutoMigrate` creates the index on the first run after upgrading
+* 0.5.0
+	* Upgrading from 0.4.x: the cache table used by the GORM storage must be
+	  dropped, and `Config` is now keyed by cache key
+	* Config is now a map keyed by cache key, with the reserved `default` entry
+	  holding the settings for every key that has no entry of its own. When no
+	  `default` entry is present, it falls back to the global `DefaultKeyConfig`
+	* Removed brotli, msgpack and gzip support
 	* Removed the unused `ParameterEncoder`, and made `DiskStorage.Dump`,
 	  `InMemoryStorage.Dump`, `GORMStorage.Dump` and `DiskStorage.IterateFiles`
-	  private. `Dump` is no longer part of `CacheStorage`
+	  private. `Dump` is no longer part of `CacheStorage` interface
 	* The database storage indexes a sha256 of the params instead of the params
-	  themselves, so params longer than an index entry can hold (about 2704 bytes
-	  on PostgreSQL, 3072 on MySQL) are cached instead of failing to store.
-	  This is a schema change: an existing cache table must be dropped before the
-	  first run, because the new `params_hash` column is `NOT NULL` and the old
-	  `(key, params)` index would otherwise keep enforcing its size limit
-	* A failed cache write no longer fails the call: the value that was resolved is
-	  returned uncached and a warning is logged, so a full disk or an unavailable
-	  database degrades to no caching rather than to no service. A value the cache
-	  cannot serialise is still returned as an error, since it will never be
-	  cacheable
+	  themselves, as an index entry can only hold about 2704 bytes in PostgreSQL.
+	  This is a schema change on top of the table drop above
+	* Coalesce concurrent cache misses into one retrieve to prevent stampedes, with
+	  per caller context handling
+	* Return ErrReentrantCall for nested calls for the same key+params. Otherwise
+	  the `singleflight` group will deadlock
+	* Return resolver panics as errors to callers waiting on the `singleflight` group
+	* A failed cache write no longer fails the call: the resolved value is returned
+	  uncached and a warning is logged, so a full disk or an unavailable database
+	  degrades to no caching rather than to no service. An unserialisable value
+	  still returns an error as `ErrCannotSerialise`, since it will always be the
+	  same result
+	* Cap TTLJitter to the TTL, so jitter cannot extend an entry's life past two
+	  times its TTL
+	* Honour ErrDoNotCache when a resolver wraps it with an error
+	* Treat a nil entry in Config as unset rather than panicking
+	* Quote column names in GORM storage queries, for databases where key is
+	  reserved
+	* Added a (key, timestamp) index so cleanup and expired counting are index
+	  scans, and dropped the implicit transaction around each write. `AutoMigrate`
+	  creates the index on the first run after upgrading
+	* Cleanup and ExpiredEntryCount enumerate the keys that have entries in storage
+	  rather than the keys listed in Config, so entries under a key with no
+	  configuration are counted and cleaned up too
+	* DiskStorage cleanup and expired counting no longer act on a key that escapes
+	  the cache root
+	* Cache hits decode in parallel: the zstd decoder concurrency limit was dropped
+	* StringCodec.Marshal no longer aliases the caller's []byte
+	* Module now requires go 1.26, adding golang.org/x/sync for the flight group
 	* Warning messages print at most the first 128 bytes of the serialised params
 	* `CacheFunk.FaultCounts` reports cumulative cache side failure counts (storage
 	  read, decode, write and serialisation) so an absorbed failure can be alerted
@@ -214,6 +227,9 @@ cache that cannot be written to warns once rather than once per call. Setting `S
 	  string, with the number suppressed reported on the next one: a failing cache
 	  warns once an interval instead of once per call. `SetWarningInterval` changes
 	  or disables the interval
+* 0.4.2
+	* Added ErrDoNotCache to let the target function return a result that should
+	  not be cached
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries
