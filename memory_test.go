@@ -61,6 +61,8 @@ func TestInMemoryStorage(t *testing.T) {
 	cache.Clear()
 	runTestSingleflightNestedCalls(t, cache)
 	cache.Clear()
+	runTestCacheErrDoNotCache(t, cache)
+	cache.Clear()
 }
 
 func ExampleInMemoryStorage() {

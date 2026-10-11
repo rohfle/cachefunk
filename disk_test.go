@@ -70,6 +70,8 @@ func TestDiskStorage(t *testing.T) {
 	cache.Clear()
 	runTestSingleflightNestedCalls(t, cache)
 	cache.Clear()
+	runTestCacheErrDoNotCache(t, cache)
+	cache.Clear()
 }
 
 // TestDiskStorageCleanupRemovesEmptyDirs checks that cleanup does not leave the

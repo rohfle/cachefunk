@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestConfigIncomplete(t *testing.T) {
@@ -62,6 +63,89 @@ func TestConfigDefaultKey(t *testing.T) {
 	config["hello"] = own
 	if got := config.Get("hello"); got != own {
 		t.Fatalf("expected the key's own entry to take precedence over DefaultKey but got %+v", got)
+	}
+}
+
+// TestTTLJitterCap checks that jitter is capped at the TTL, so it cannot extend
+// an entry's life past two times its TTL, and at one year, so a TTL measured in
+// centuries cannot carry the timestamp out of range.
+func TestTTLJitterCap(t *testing.T) {
+	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+	oneYear := time.Duration(maxJitterSeconds) * time.Second
+
+	for _, tc := range []struct {
+		name       string
+		ttl        int64
+		jitter     int64
+		wantJitter int64
+		wantMax    time.Duration
+	}{
+		{"under the cap", 3600, 300, 300, 300 * time.Second},
+		{"at the cap", 3600, 3600, 3600, 3600 * time.Second},
+		{"over the cap", 3600, 1 << 62, 3600, 3600 * time.Second},
+		{"ttl that fills a duration", TTLMax, TTLMax, 365 * 24 * 60 * 60, oneYear},
+		{"ttl of one second", 1, 5, 1, 0},
+		{"immediate expiry", TTLEntryImmediatelyExpires, 300, 0, 0},
+		{"never expires", TTLEntryNeverExpires, 300, 0, 0},
+		{"no jitter", 3600, 0, 0, 0},
+	} {
+		config := &KeyConfig{TTL: tc.ttl, TTLJitter: tc.jitter}
+
+		if got := config.GetTTLJitter(); got != tc.wantJitter {
+			t.Fatalf("%s: expected an effective jitter of %d seconds but got %d", tc.name, tc.wantJitter, got)
+		}
+
+		var maxApplied time.Duration
+		for range 100 {
+			applied := config.GetTimestamp(now).Sub(now)
+			if applied < 0 || applied > tc.wantMax {
+				t.Fatalf("%s: expected jitter between 0 and %s but got %s", tc.name, tc.wantMax, applied)
+			}
+			maxApplied = max(maxApplied, applied)
+		}
+
+		if tc.wantMax > 0 && maxApplied == 0 {
+			t.Errorf("%s: expected jitter to be applied but every timestamp was unjittered", tc.name)
+		}
+	}
+}
+
+// TestConfigNilEntry checks that a nil entry - what a null value in a JSON config
+// file unmarshals to - counts as unset rather than reaching the caller as a nil
+// *KeyConfig, which used to panic when a cached call read the config.
+func TestConfigNilEntry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config Config
+	}{
+		{"key", Config{"hello": nil}},
+		{"default", Config{DefaultKey: nil}},
+		{"key and default", Config{DefaultKey: nil, "hello": nil}},
+	} {
+		if got := tc.config.Get("hello"); got != DefaultKeyConfig {
+			t.Errorf("%s: expected a nil entry to resolve to DefaultKeyConfig but got %+v", tc.name, got)
+		}
+	}
+
+	// the config a JSON file with a null value unmarshals to, plus the cached
+	// call that used to dereference it
+	var config Config
+	if err := json.Unmarshal([]byte(`{"default": {"ttl": 60}, "hello": null}`), &config); err != nil {
+		t.Fatalf("error while unmarshaling config: %s", err)
+	}
+	if got := config.Get("hello"); got != config[DefaultKey] {
+		t.Fatalf("expected the null key to resolve to the default entry but got %+v", got)
+	}
+
+	cache := &CacheFunk{Config: config, Storage: NewInMemoryStorage()}
+	value, err := Wrap(cache, "hello", func(params string) (string, error) {
+		return "hello " + params, nil
+	})("bob")
+	if err != nil {
+		t.Fatalf("cached call under a null config entry returned an error: %s", err)
+	}
+	if value != "hello bob" {
+		t.Fatalf("expected \"hello bob\" but got %q", value)
 	}
 }
 

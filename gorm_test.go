@@ -1,17 +1,77 @@
 package cachefunk
 
 import (
+	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type HelloWorldParams struct {
 	Name string
 	Age  int64
+}
+
+// sqlRecorder is a gorm logger that collects the SQL of every statement it is
+// asked to trace
+type sqlRecorder struct {
+	statements []string
+}
+
+func (r *sqlRecorder) LogMode(logger.LogLevel) logger.Interface { return r }
+func (r *sqlRecorder) Info(context.Context, string, ...any)     {}
+func (r *sqlRecorder) Warn(context.Context, string, ...any)     {}
+func (r *sqlRecorder) Error(context.Context, string, ...any)    {}
+
+func (r *sqlRecorder) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	statement, _ := fc()
+	r.statements = append(r.statements, statement)
+}
+
+// TestGORMStorageQuotesReservedColumns checks that column names reach the
+// database quoted. gorm passes raw fragments such as "key = ?" through
+// unquoted, and key is a reserved word in MySQL, which made every get, cleanup
+// and expired count a syntax error there. sqlite does not care, so the generated
+// SQL is what this test holds to.
+func TestGORMStorageQuotesReservedColumns(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal("failed to connect database")
+	}
+
+	if err := db.AutoMigrate(&CacheEntry{}); err != nil {
+		t.Fatalf("error while migrating: %s", err)
+	}
+
+	recorder := &sqlRecorder{}
+	storage := &GORMStorage{DB: db.Session(&gorm.Session{Logger: recorder})}
+	expireBeforeTime := time.Now().UTC()
+
+	storage.Get("key", DefaultKeyConfig, "params", expireBeforeTime)
+	storage.Cleanup("key", DefaultKeyConfig, expireBeforeTime)
+	storage.ExpiredEntryCount("key", DefaultKeyConfig, expireBeforeTime)
+
+	if len(recorder.statements) != 3 {
+		t.Fatalf("expected the 3 storage calls to reach the database but traced %d statements: %v", len(recorder.statements), recorder.statements)
+	}
+
+	// a column is only safe from reserved words when it is quoted: `key` = ?
+	// rather than key = ?
+	unquotedColumn := regexp.MustCompile("(^|[^`\\w])(key|timestamp|params)\\s*[=<>]")
+	for _, statement := range recorder.statements {
+		if !strings.Contains(statement, "`key`") {
+			t.Errorf("expected the key column to be quoted in %q", statement)
+		}
+		if unquotedColumn.MatchString(statement) {
+			t.Errorf("expected every column to be quoted in %q", statement)
+		}
+	}
 }
 
 func TestGORMStorage(t *testing.T) {
@@ -72,6 +132,8 @@ func TestGORMStorage(t *testing.T) {
 	runTestSingleflightReentrantCall(t, cache)
 	cache.Clear()
 	runTestSingleflightNestedCalls(t, cache)
+	cache.Clear()
+	runTestCacheErrDoNotCache(t, cache)
 	cache.Clear()
 }
 

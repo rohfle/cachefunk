@@ -72,6 +72,53 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 	}
 }
 
+// runTestCacheErrDoNotCache checks that a resolver can return a result that must
+// not be stored while the caller still receives that result, whether the
+// resolver returns ErrDoNotCache directly or wraps it with %w.
+func runTestCacheErrDoNotCache(t *testing.T, cache *CacheFunk) {
+	cache.Config = Config{
+		DefaultKey: {TTL: 60, TTLJitter: 0, BodyCodec: StringCodec, BodyCompression: NoCompression},
+	}
+
+	for _, tc := range []struct {
+		name string
+		err  func() error
+	}{
+		{"added", func() error { return ErrDoNotCache }},
+		{"wrapped", func() error { return fmt.Errorf("gateway timeout: %w", ErrDoNotCache) }},
+	} {
+		// a fresh resolver per case: whether the result was stored is read off
+		// the number of calls the resolver receives
+		calls := 0
+		Fetch := Wrap(cache, "errDoNotCache", func(params string) (string, error) {
+			calls++
+			return "uncached " + params, tc.err()
+		})
+
+		for call := 1; call <= 2; call++ {
+			value, err := Fetch("p")
+			if err != nil {
+				t.Fatalf("%s: call %d returned an error: %s", tc.name, call, err)
+			}
+			if value != "uncached p" {
+				t.Fatalf("%s: call %d expected \"uncached p\" but got %q", tc.name, call, value)
+			}
+		}
+
+		if calls != 2 {
+			t.Errorf("%s: expected the resolver to run for both calls but it ran %d times", tc.name, calls)
+		}
+	}
+
+	count, err := cache.EntryCount()
+	if err != nil {
+		t.Fatalf("error while fetching entry count: %s", err)
+	}
+	if count != 0 {
+		t.Errorf("expected ErrDoNotCache results to not be stored but the cache holds %d entries", count)
+	}
+}
+
 // runTestCacheCompressedPayload covers caching a payload that is already
 // compressed on the wire (see the README section "Caching already-compressed
 // payloads"): StringCodec with NoCompression stores the bytes exactly as

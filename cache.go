@@ -334,18 +334,19 @@ func cacheImpl[Params any, ResultType any](
 		flightCtx := context.WithValue(context.WithoutCancel(ctx), flightMarker(flightKey), struct{}{})
 
 		result, rerr := resolverFunc(flightCtx, params)
-		switch rerr {
-		case nil:
+		switch {
+		case rerr == nil:
 			// call to resolver was successful, set value in cache
 			if serr := cache.Set(key, config, paramStr, result); serr != nil {
 				// passthrough result and error to parent
 				return result, fmt.Errorf("set cache failed for key=%q paramStr=%+v: %w", key, paramStr, serr)
 			}
 			return result, nil
-		case ErrDoNotCache:
+		case errors.Is(rerr, ErrDoNotCache):
 			// the result is valid, but do not cache the result
 			// useful for things like gateway timeout in http, where you want to return the response
 			// but it doesnt make sense to use the same response next time
+			// errors.Is rather than == so a resolver wrapping the error with %w is honoured too
 			return result, nil
 		default:
 			if config.FallbackToExpired && fallback != nil {

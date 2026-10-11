@@ -41,7 +41,9 @@ func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
 func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	var cacheEntry CacheEntry
 
-	result := c.DB.Where("key = ? AND params = ?", key, params).First(&cacheEntry)
+	// map conditions make gorm quote the column names. A raw "key = ?" fragment
+	// is passed through unquoted, and key is a reserved word in MySQL
+	result := c.DB.Where(map[string]any{"key": key, "params": params}).First(&cacheEntry)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, ErrEntryNotFound
@@ -112,7 +114,10 @@ func (c *GORMStorage) Clear() error {
 
 // Cleanup will delete all cache entries that have expired
 func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
-	result := c.DB.Where("key = ? AND timestamp < ?", key, expireBeforeTime).Delete(&CacheEntry{})
+	result := c.DB.
+		Where(map[string]any{"key": key}).
+		Where(clause.Lt{Column: clause.Column{Name: "timestamp"}, Value: expireBeforeTime}).
+		Delete(&CacheEntry{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -130,7 +135,10 @@ func (c *GORMStorage) EntryCount() (int64, error) {
 
 func (c *GORMStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64
-	result := c.DB.Model(&CacheEntry{}).Where("key = ? AND timestamp < ?", key, expireBeforeTime).Count(&count)
+	result := c.DB.Model(&CacheEntry{}).
+		Where(map[string]any{"key": key}).
+		Where(clause.Lt{Column: clause.Column{Name: "timestamp"}, Value: expireBeforeTime}).
+		Count(&count)
 	if result.Error != nil {
 		return 0, result.Error
 	}

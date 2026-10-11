@@ -55,10 +55,11 @@ type Config map[string]*KeyConfig
 // Get returns the cache config given a key: first the key's own entry, then
 // if that does not exist the reserved DefaultKey entry. If DefaultKey entry
 // does not exist then the global DefaultKeyConfig will be returned.
+// A nil entry counts as unset, so this never returns a nil *KeyConfig.
 func (c Config) Get(key string) *KeyConfig {
-	if value, exists := c[key]; exists {
+	if value, exists := c[key]; exists && value != nil {
 		return value
-	} else if value, exists := c[DefaultKey]; exists {
+	} else if value, exists := c[DefaultKey]; exists && value != nil {
 		return value
 	} else {
 		return DefaultKeyConfig
@@ -77,8 +78,10 @@ type KeyConfig struct {
 	// - 2419200: four weeks
 	// - 31536000: one year
 	TTL int64
-	// When TTLJitter is > 0, a random value from 1 to TTLJitter will be added to TTL
-	// This spreads cache expire time to stop retrieval of fresh responses all at once
+	// When TTLJitter is > 0, a random value from 0 to TTLJitter-1 seconds is added
+	// to the timestamp of the entry. This spreads cache expire time to stop
+	// retrieval of fresh responses all at once. The jitter applied is capped at
+	// the TTL, see GetTTLJitter.
 	TTLJitter int64
 	// Use expired entries when a fresh value cannot be successfully retrieved
 	FallbackToExpired bool
@@ -139,19 +142,31 @@ func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	return now.Add(-1 * time.Duration(kc.TTL) * time.Second)
 }
 
-// GetTimestamp the timestamp of a file with TTLJitter applied
+// maxJitterSeconds is the largest jitter in seconds that can be added to a
+// timestamp. Hard coded at one year
+const maxJitterSeconds = int64(365 * 24 * 60 * 60)
+
+// GetTimestamp returns the timestamp of an entry with TTLJitter applied
 func (kc *KeyConfig) GetTimestamp(now time.Time) time.Time {
-	if kc.TTLJitter > 0 {
-		// a random value from 1 to TTLJitter seconds is added
+	if jitter := kc.GetTTLJitter(); jitter > 0 {
+		// a random value from 0 to jitter-1 seconds is added
 		// the effect is the timestamp will appear to be created
-		// up to TTLJitter seconds into the future
-
-		// TODO: upper bound on TTLJitter
-
-		delay := rand.Int64N(kc.TTLJitter)
+		// up to jitter seconds into the future
+		delay := rand.Int64N(jitter)
 		now = now.Add(time.Duration(delay) * time.Second)
 	}
 	return now
+}
+
+// GetTTLJitter returns the jitter that will be applied to a timestamp: TTLJitter
+// capped so it can never extend an entry's life past two times its TTL, and at
+// one year so that a large TTL cannot carry the timestamp out of range.
+// Entries that do not expire get no jitter.
+func (kc *KeyConfig) GetTTLJitter() int64 {
+	if kc.TTLJitter <= 0 || kc.TTL <= 0 {
+		return 0
+	}
+	return min(kc.TTLJitter, kc.TTL, int64(maxJitterSeconds))
 }
 
 // MarshalJSON helps to marshal the different codecs and compression

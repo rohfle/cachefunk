@@ -124,6 +124,9 @@ The reserved key `cachefunk.DefaultKey` (`"default"`) holds settings for every c
 no entry of its own. When a `DefaultKey` entry is not present, keys with no entry fall back to the
 global `cachefunk.DefaultKeyConfig`.
 
+`ttl_jitter` seconds are added to the timestamp of an entry, capped so jitter can never extend an
+entry's lifetime past two times its TTL.
+
 `Cleanup` and `ExpiredEntryCount` enumerate cache keys that have entries in storage and retrieve each
 one's config through `Config.Get` (see `CacheStorage.Keys`). Entries cached under a key that
 does not have configuration listed in `Config` - those relying on `DefaultKey` or the global
@@ -159,6 +162,10 @@ Different params get separate retrieves.
 	* Return resolver panics as errors to the callers waiting on the flight
 	* Module now requires go 1.26, adding golang.org/x/sync for the flight group
 	* Removed brotli, msgpack, gzip support
+	* Cap TTLJitter to TTL
+	* Honour ErrDoNotCache when a resolver wraps it with an error
+	* Treat a nil entry in Config as unset rather than panicking
+	* Quote column names in GORM storage queries, for databases where key is reserved
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries
