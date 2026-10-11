@@ -20,12 +20,13 @@ Use wrapper functions to cache function output in golang.
 - Uses go generics, in IDE type checked parameters and result
 - Cache can be ignored, either by boolean or by ctx key
 - Use `ErrDoNotCache` from target function to return result without caching it
+- Concurrent calls for same key and params use `singleflight` to prevent stampeding the downstream retrieve function
 
 ## Getting Started
 
 ### Dependencies
 
-* go version that supports generics (tested v1.23 and v1.24)
+* go 1.26 or later (the module requires go 1.26, for `golang.org/x/sync`)
 
 ### Installing
 
@@ -128,6 +129,17 @@ one's config through `Config.Get` (see `CacheStorage.Keys`). Entries cached unde
 does not have configuration listed in `Config` - those relying on `DefaultKey` or the global
 `DefaultKeyConfig` - are therefore counted and cleaned up like those that do.
 
+## Concurrent calls
+
+Concurrent calls with the same key and params share one retrieve. Waiters receive its result.
+Different params get separate retrieves.
+
+- **Context**: the retrieve ignores the initiator’s cancellation and deadline. Giving up returns your own context error (or the ready result); the others get that call’s result, and because `singleflight` runs the wrapped function in a goroutine, it fills the cache even if everyone gives up.
+- **Already-cancelled callers**: will return before starting a retrieve, but still get a fresh cache hit.
+- **ignoreCache**: will skip checking the cache for existing entries, but will still respect singleflight retrieve.
+- **Panics**: a panic in the resolver returns an error to every waiting caller. Nothing is cached, and the next call retries normally.
+- **Nested calls**: nested calls for the same key and params using the original context return `ErrReentrantCall` instead of deadlocking (other keys and params resolve normally). Nested calls that drop the context (via `Wrap` or `WrapWithIgnore`) bypass this check and will still deadlock.
+
 ## Notes about timestamps
 
 - Timestamps store the time when the cached item was saved with jitter applied
@@ -141,6 +153,12 @@ does not have configuration listed in `Config` - those relying on `DefaultKey` o
 
 ## Version History
 
+* unreleased
+	* Coalesce concurrent cache misses into one retrieve, with per caller context handling
+	* Return ErrReentrantCall for a resolver that calls back for the key+params it is resolving
+	* Return resolver panics as errors to the callers waiting on the flight
+	* Module now requires go 1.26, adding golang.org/x/sync for the flight group
+	* Removed brotli, msgpack, gzip support
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries
