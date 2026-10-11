@@ -6,17 +6,26 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 var (
 	ErrEntryNotFound = errors.New("cache entry not found")
 	ErrEntryExpired  = errors.New("cache entry expired")
 	ErrDoNotCache    = errors.New("do not cache the entry")
+
+	// ErrReentrantCall is returned when a resolver calls back into the cache with the
+	// same key+params it is currently resolving, using the context it was given.
+	ErrReentrantCall = errors.New("re-entrant cache call on same key and params")
 )
 
 type LazyLoad func(any) error
 
 type ignoreCacheKey struct{}
+
+// flightMarker is a context key; one distinct key per in-flight key+params.
+type flightMarker string
 
 func GetIgnoreCacheFromContext(ctx context.Context) bool {
 	ignoreCache, _ := ctx.Value(ignoreCacheKey{}).(bool)
@@ -30,6 +39,11 @@ func SetIgnoreCacheInContext(ctx context.Context, value bool) context.Context {
 type CacheFunk struct {
 	Config  Config
 	Storage CacheStorage
+
+	// flights collapses concurrent cache misses for the same key+params into a
+	// single upstream call. The zero value is ready to use. Do not copy a
+	// CacheFunk by value after first use.
+	flights singleflight.Group
 }
 
 type CacheStorage interface {
@@ -192,11 +206,10 @@ func Cache[Params any, ResultType any](
 	resolverFunc func(Params) (ResultType, error),
 	params Params,
 ) (ResultType, error) {
-	resolverFuncPatch := func(params Params) (ResultType, error) {
-		return resolverFunc(params)
+	adapted := func(_ context.Context, p Params) (ResultType, error) {
+		return resolverFunc(p)
 	}
-
-	return cacheImpl(cache, key, resolverFuncPatch, false, params)
+	return cacheImpl(context.Background(), cache, key, adapted, false, params)
 }
 
 func CacheWithIgnore[Params any, ResultType any](
@@ -206,11 +219,10 @@ func CacheWithIgnore[Params any, ResultType any](
 	ignoreCache bool,
 	params Params,
 ) (ResultType, error) {
-	resolverFuncPatch := func(params Params) (ResultType, error) {
-		return resolverFunc(ignoreCache, params)
+	adapted := func(_ context.Context, p Params) (ResultType, error) {
+		return resolverFunc(ignoreCache, p)
 	}
-
-	return cacheImpl(cache, key, resolverFuncPatch, ignoreCache, params)
+	return cacheImpl(context.Background(), cache, key, adapted, ignoreCache, params)
 }
 
 func CacheWithContext[Params any, ResultType any](
@@ -220,77 +232,151 @@ func CacheWithContext[Params any, ResultType any](
 	ctx context.Context,
 	params Params,
 ) (ResultType, error) {
-	ignoreCache := GetIgnoreCacheFromContext(ctx)
-	resolverFuncPatch := func(params Params) (ResultType, error) {
-		return resolverFunc(ctx, params)
-	}
-
-	return cacheImpl(cache, key, resolverFuncPatch, ignoreCache, params)
+	return cacheImpl(ctx, cache, key, resolverFunc, GetIgnoreCacheFromContext(ctx), params)
 }
 
+// tryCache returns hit=true with a decoded result for a fresh entry. If only an
+// expired entry is available and FallbackToExpired is set, lazyload is non-nil
+// so the caller can use it as a fallback.
+func tryCache[R any](cache *CacheFunk, key string, config *KeyConfig, paramStr string) (result R, lazyload LazyLoad, hit bool) {
+	lazyload, err := cache.GetLazy(key, config, paramStr)
+	if err == nil {
+		if err = lazyload(&result); err == nil {
+			return result, nil, true
+		}
+		// Fresh entry exists but won't decode. Return a nil lazyload so the
+		// caller can't "fall back" to the same undecodable bytes: a retry would
+		// fail identically and only mask the corruption.
+		warning("ignoring error while decoding cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
+		var zero R
+		return zero, nil, false
+	}
+	if err != ErrEntryNotFound && err != ErrEntryExpired {
+		warning("ignoring error while getting cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
+	}
+	// ErrEntryExpired with FallbackToExpired: lazyload is non-nil and usable
+	return result, lazyload, false
+}
+
+// cacheImpl looks up key+params in the cache and, on a miss, calls resolverFunc.
+// Concurrent misses for the same key+params share a single resolver call
+// (singleflight). Each caller waits on its own ctx; the resolver itself runs on
+// a context detached from any individual caller's cancellation.
+//
+// A resolver must not call the cache for the same key+params it is currently
+// resolving. Context-aware callers that pass the resolver's context through get
+// ErrReentrantCall; ctxless callers will wait on themselves (forever, since
+// there is no deadline).
 func cacheImpl[Params any, ResultType any](
+	ctx context.Context,
 	cache *CacheFunk,
 	key string,
-	resolverFunc func(Params) (ResultType, error),
+	resolverFunc func(context.Context, Params) (ResultType, error),
 	ignoreCache bool,
 	params Params,
 ) (ResultType, error) {
 	config := cache.Config.Get(key)
-	var result ResultType
-	var lazyload func(any) error = nil
+	var zero ResultType
+
 	// serialize parameters for cache
 	// key + parameters determines a unique identifier for a request
 	paramStr, err := config.GetParamCodec().Marshal(params)
 	if err != nil {
 		// let parent handle error
-		return result, fmt.Errorf("failed to marshal parameters key=%q params=%+v: %w", key, params, err)
+		return zero, fmt.Errorf("failed to marshal parameters key=%q params=%+v: %w", key, params, err)
 	}
 
+	// Fast path: fresh cache hit, no coordination needed
 	if !ignoreCache {
-		// check if theres an existing result in cache
-		lazyload, err = cache.GetLazy(key, config, paramStr)
-		if err == nil {
-			// result is good and not expired, immediately lazyload
-			if err = lazyload(&result); err == nil {
-				// decompress and unmarshal successful
-				return result, nil
-			}
-		}
-
-		if err != nil && err != ErrEntryNotFound && err != ErrEntryExpired {
-			// there has been an error either in GetLazy or calling lazyload
-			warning("ignoring error while getting cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
+		if result, _, hit := tryCache[ResultType](cache, key, config, paramStr); hit {
+			return result, nil
 		}
 	}
-	// either there is no existing result, or the result was invalid or expired
-	// so call resolver and get a fresh result
-	result, err = resolverFunc(params)
-	switch err {
-	case nil:
-		// call to resolver was successful, set value in cache
-		err = cache.Set(key, config, paramStr, result)
-		if err != nil {
-			// passthrough result and error to parent
-			return result, fmt.Errorf("set cache failed for key=%q paramStr=%+v: %w", key, paramStr, err)
-		}
-		return result, nil
-	case ErrDoNotCache:
-		// the result is valid, but do not cache the result
-		// useful for things like gateway timeout in http, where you want to return the response
-		// but it doesnt make sense to use the same response next time
-		return result, nil
-	default:
-		// an error has occurred
-		if config.FallbackToExpired && lazyload != nil {
-			// theres an expired cache entry maybe we can use it as a fallback
-			// for example, if an upstream webserver disappears
-			if err = lazyload(&result); err == nil {
-				// decompress and unmarshal successful
-				warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%+v: %s", key, paramStr, err)
+
+	// Don't join or start a flight if the caller is already gone
+	if err := ctx.Err(); err != nil {
+		return zero, fmt.Errorf("context done before fetching key=%q paramStr=%+v: %w", key, paramStr, err)
+	}
+
+	flightKey := fmt.Sprintf("%d:%s%s", len(key), key, paramStr)
+
+	// Called from inside our own resolver (same key+params): joining the flight
+	// would wait on ourselves forever.
+	if ctx.Value(flightMarker(flightKey)) != nil {
+		return zero, fmt.Errorf("%w: key=%q paramStr=%+v", ErrReentrantCall, key, paramStr)
+	}
+
+	ch := cache.flights.DoChan(flightKey, func() (v any, ferr error) {
+		// With DoChan the function runs in its own goroutine, and a panic there
+		// would crash the process (singleflight can't forward it to waiters).
+		// Convert panics to errors instead.
+		defer func() {
+			if r := recover(); r != nil {
+				v, ferr = nil, fmt.Errorf("panic while retrieving key=%q paramStr=%+v: %v", key, paramStr, r)
+			}
+		}()
+
+		// Re-check the cache in case a previous flight just populated it
+		var fallback LazyLoad
+		if !ignoreCache {
+			result, lazyload, hit := tryCache[ResultType](cache, key, config, paramStr)
+			if hit {
 				return result, nil
 			}
+			fallback = lazyload
 		}
-		// otherwise error as both the cache and the resolver failed to return a result
-		return result, fmt.Errorf("failed to retrieve fresh value for key=%q paramStr=%+v: %w", key, paramStr, err)
+
+		// Detached from the leader's cancellation (values are preserved), so one
+		// caller going away doesn't fail everyone else waiting on this flight.
+		// The marker lets nested calls on the same key+params detect re-entrancy.
+		// Note the leader's deadline is dropped too: resolvers should enforce
+		// their own timeouts.
+		flightCtx := context.WithValue(context.WithoutCancel(ctx), flightMarker(flightKey), struct{}{})
+
+		result, rerr := resolverFunc(flightCtx, params)
+		switch rerr {
+		case nil:
+			// call to resolver was successful, set value in cache
+			if serr := cache.Set(key, config, paramStr, result); serr != nil {
+				// passthrough result and error to parent
+				return result, fmt.Errorf("set cache failed for key=%q paramStr=%+v: %w", key, paramStr, serr)
+			}
+			return result, nil
+		case ErrDoNotCache:
+			// the result is valid, but do not cache the result
+			// useful for things like gateway timeout in http, where you want to return the response
+			// but it doesnt make sense to use the same response next time
+			return result, nil
+		default:
+			if config.FallbackToExpired && fallback != nil {
+				// there's an expired cache entry, maybe we can use it as a fallback
+				// for example, if an upstream webserver disappears
+				var stale ResultType
+				if lerr := fallback(&stale); lerr == nil {
+					warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%+v: %s", key, paramStr, rerr)
+					return stale, nil
+				}
+			}
+			// otherwise error as both the cache and the resolver failed to return a result
+			return result, fmt.Errorf("failed to retrieve fresh value for key=%q paramStr=%+v: %w", key, paramStr, rerr)
+		}
+	})
+
+	// Prefer a result that is already available over a simultaneous cancellation.
+	select {
+	case res := <-ch:
+		result, _ := res.Val.(ResultType) // zero value if Val is nil
+		return result, res.Err
+	default:
+	}
+
+	select {
+	case <-ctx.Done():
+		// This caller leaves; the flight keeps running for the others and will
+		// still populate the cache when it finishes.
+		return zero, fmt.Errorf("context done while waiting for key=%q paramStr=%+v: %w", key, paramStr, ctx.Err())
+	case res := <-ch:
+		result, _ := res.Val.(ResultType)
+		return result, res.Err
 	}
 }

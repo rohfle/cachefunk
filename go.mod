@@ -1,10 +1,11 @@
 module github.com/rohfle/cachefunk
 
-go 1.24.0
+go 1.26.0
 
-toolchain go1.24.4
-
-require gorm.io/gorm v1.30.0
+require (
+	golang.org/x/sync v0.24.0
+	gorm.io/gorm v1.30.0
+)
 
 require golang.org/x/text v0.25.0 // indirect
 

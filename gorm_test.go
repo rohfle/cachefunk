@@ -61,6 +61,18 @@ func TestGORMStorage(t *testing.T) {
 	cache.Clear()
 	runTestCacheCompressedPayload(t, cache)
 	cache.Clear()
+	runTestSingleflightCoalesces(t, cache)
+	cache.Clear()
+	runTestSingleflightPanicIsReturnedAsError(t, cache)
+	cache.Clear()
+	runTestSingleflightDoneContext(t, cache)
+	cache.Clear()
+	runTestSingleflightCallerGivesUp(t, cache)
+	cache.Clear()
+	runTestSingleflightReentrantCall(t, cache)
+	cache.Clear()
+	runTestSingleflightNestedCalls(t, cache)
+	cache.Clear()
 }
 
 func ExampleGORMStorage() {
