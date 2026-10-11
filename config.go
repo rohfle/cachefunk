@@ -25,7 +25,11 @@ var MinDate = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // MaxDate is the latest time that cachefunk uses (9999-01-01)
 var MaxDate = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
-var TTLMax = int64(MaxDate.Sub(MinDate) / time.Second)
+
+// TTLMax is a reasonable limit in seconds for the lifetime of a cached item
+// Set to approximately 10 years max which is still huge for a TTL
+// A TTL above this never expires
+var TTLMax = int64(10 * (365 * 24 * time.Hour / time.Second))
 
 // Defaults
 
@@ -122,9 +126,8 @@ type keyConfigRaw struct {
 	BodyCompression   string `json:"body_compression,omitempty"`
 }
 
-// GetExpireTime calculates an expire time from the key config
-// within reasonable bounds for modern filesystems (as of year 2017)
-// any entry with timestamp before the expire time is said to have expired
+// GetExpireTime calculates an expire time with reasonable bounds for filesystems
+// any entry with a timestamp before the expire time is said to have expired
 func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	if kc.TTL == TTLEntryImmediatelyExpires {
 		// expireBeforeTime will always be after timestamp therefore everything expires immediately

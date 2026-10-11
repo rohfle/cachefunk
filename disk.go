@@ -99,7 +99,7 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBe
 		if os.IsNotExist(err) {
 			return nil, ErrEntryNotFound
 		}
-		return nil, fmt.Errorf("call to os.Stat failed %q: %v", path, err)
+		return nil, fmt.Errorf("call to os.Stat failed %q: %w", path, err)
 	}
 
 	hasExpired := expireBeforeTime.After(stat.ModTime())
@@ -113,7 +113,7 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBe
 		if os.IsNotExist(err) {
 			return nil, ErrEntryNotFound
 		}
-		return nil, fmt.Errorf("failed to read %q: %v", path, err)
+		return nil, fmt.Errorf("failed to read %q: %w", path, err)
 	}
 
 	if hasExpired {
@@ -132,28 +132,28 @@ func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []
 	dirs, _ := filepath.Split(path)
 	err = os.MkdirAll(dirs, 0755)
 	if err != nil {
-		return fmt.Errorf("call to os.MkdirAll failed %+v: %v", dirs, err)
+		return fmt.Errorf("call to os.MkdirAll failed %+v: %w", dirs, err)
 	}
 	tmp, err := os.CreateTemp(dirs, ".cache-*")
 	if err != nil {
-		return fmt.Errorf("call to os.CreateTemp failed %q: %v", dirs, err)
+		return fmt.Errorf("call to os.CreateTemp failed %q: %w", dirs, err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err = tmp.Write(value); err != nil {
 		tmp.Close()
-		return fmt.Errorf("call to tmp.Write failed %q: %v", path, err)
+		return fmt.Errorf("call to tmp.Write failed %q: %w", path, err)
 	}
 	if err = tmp.Chmod(0644); err != nil {
 		tmp.Close()
-		return fmt.Errorf("call to tmp.Chmod failed %q: %v", path, err)
+		return fmt.Errorf("call to tmp.Chmod failed %q: %w", path, err)
 	}
 	if err = tmp.Close(); err != nil {
-		return fmt.Errorf("call to tmp.Close failed %q: %v", path, err)
+		return fmt.Errorf("call to tmp.Close failed %q: %w", path, err)
 	}
 	err = os.Chtimes(tmpName, time.Now().UTC(), timestamp)
 	if err != nil {
-		return fmt.Errorf("call to os.Chtimes failed %q: %v", path, err)
+		return fmt.Errorf("call to os.Chtimes failed %q: %w", path, err)
 	}
 	err = os.Rename(tmpName, path)
 	if os.IsNotExist(err) {
@@ -164,7 +164,7 @@ func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("call to os.Rename failed %q: %v", path, err)
+		return fmt.Errorf("call to os.Rename failed %q: %w", path, err)
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ func (c *DiskStorage) Keys() ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("call to os.ReadDir failed %q: %v", c.BasePath, err)
+		return nil, fmt.Errorf("call to os.ReadDir failed %q: %w", c.BasePath, err)
 	}
 	var keys []string
 	for _, entry := range entries {
@@ -192,11 +192,11 @@ func (c *DiskStorage) Keys() ([]string, error) {
 func (c *DiskStorage) Clear() error {
 	err := os.RemoveAll(c.BasePath)
 	if err != nil {
-		return fmt.Errorf("failed to clear cache %q: when removing files: %v", c.BasePath, err)
+		return fmt.Errorf("failed to clear cache %q: when removing files: %w", c.BasePath, err)
 	}
 	err = os.Mkdir(c.BasePath, 0755)
 	if err != nil {
-		return fmt.Errorf("failed to clear cache %q: when recreating directory: %v", c.BasePath, err)
+		return fmt.Errorf("failed to clear cache %q: when recreating directory: %w", c.BasePath, err)
 	}
 	return nil
 }

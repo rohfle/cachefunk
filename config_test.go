@@ -83,7 +83,7 @@ func TestTTLJitterCap(t *testing.T) {
 		{"under the cap", 3600, 300, 300, 300 * time.Second},
 		{"at the cap", 3600, 3600, 3600, 3600 * time.Second},
 		{"over the cap", 3600, 1 << 62, 3600, 3600 * time.Second},
-		{"ttl that fills a duration", TTLMax, TTLMax, 365 * 24 * 60 * 60, oneYear},
+		{"ttl at the limit", TTLMax, TTLMax, 365 * 24 * 60 * 60, oneYear},
 		{"ttl of one second", 1, 5, 1, 0},
 		{"immediate expiry", TTLEntryImmediatelyExpires, 300, 0, 0},
 		{"never expires", TTLEntryNeverExpires, 300, 0, 0},
@@ -107,6 +107,28 @@ func TestTTLJitterCap(t *testing.T) {
 		if tc.wantMax > 0 && maxApplied == 0 {
 			t.Errorf("%s: expected jitter to be applied but every timestamp was unjittered", tc.name)
 		}
+	}
+}
+
+// TestGetExpireTimeTTLLimit checks the TTLMax policy: a TTL above the limit
+// never expires, and a TTL at the limit is still honoured. The second half also
+// pins the unit: TTLMax is in seconds to match TTL, so a nanosecond valued
+// constant would make every TTL look like "never expires".
+func TestGetExpireTimeTTLLimit(t *testing.T) {
+	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+
+	above := (&KeyConfig{TTL: TTLMax + 1}).GetExpireTime(now)
+	if !above.Equal(MinDate) {
+		t.Errorf("expected a TTL above TTLMax (%d) to never expire but got %s", TTLMax, above)
+	}
+
+	at := &KeyConfig{TTL: TTLMax}
+	below := at.GetExpireTime(now)
+	if below.Equal(MinDate) {
+		t.Fatalf("expected a TTL at TTLMax (%d seconds) to expire, not to never expire", TTLMax)
+	}
+	if want := now.Add(-time.Duration(at.TTL) * time.Second); !below.Equal(want) {
+		t.Errorf("expected a TTL at TTLMax to expire at %s but got %s", want, below)
 	}
 }
 

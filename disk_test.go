@@ -2,6 +2,7 @@ package cachefunk
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -140,6 +141,9 @@ func TestBadCacheKeyPaths(t *testing.T) {
 		"../",
 		".",
 		"../../...../.../././././././././.",
+		// ".." is rejected anywhere in a key, not only as a path element
+		"a..b",
+		"12..34",
 	}
 
 	original := "here is a value"
@@ -224,8 +228,8 @@ func TestDiskStorageCleanupPathEscape(t *testing.T) {
 
 	expireBeforeTime := time.Now().UTC()
 
-	// "../sibling" is caught by the blank/dot key rule; the second key only
-	// escapes through the cache root, so it exercises filepath.IsLocal.
+	// both keys are rejected by the key rule: a key may not contain ".."
+	// anywhere, which is what stops a key from climbing out of the cache root
 	for _, key := range []string{"../sibling", "sub/../../sibling"} {
 		if err := storage.Cleanup(key, DefaultKeyConfig, expireBeforeTime); err == nil {
 			t.Errorf("expected Cleanup with key %q to be rejected, but got nil error", key)
@@ -239,6 +243,36 @@ func TestDiskStorageCleanupPathEscape(t *testing.T) {
 		if _, err := os.Stat(victim); err != nil {
 			t.Errorf("file outside the cache root was affected by key %q: %s", key, err)
 		}
+	}
+}
+
+// TestDiskStorageErrorChain checks that errors from the operating system stay in
+// the returned error chain, so callers can use errors.As and errors.Is on them.
+func TestDiskStorageErrorChain(t *testing.T) {
+	basePath := t.TempDir()
+	storage, err := NewDiskStorage(basePath, nil)
+	if err != nil {
+		t.Fatalf("error while creating disk storage: %s", err)
+	}
+
+	// put a file where the entry path needs a directory
+	dirs := SHA256HexPather("params")
+	blocker := filepath.Join(basePath, "key", dirs[0])
+	if err := os.MkdirAll(filepath.Dir(blocker), 0755); err != nil {
+		t.Fatalf("error while creating blocker directory: %s", err)
+	}
+	if err := os.WriteFile(blocker, []byte("in the way"), 0644); err != nil {
+		t.Fatalf("error while creating blocker file: %s", err)
+	}
+
+	err = storage.Set("key", DefaultKeyConfig, "params", []byte("value"), time.Now().UTC())
+	if err == nil {
+		t.Fatal("expected Set to fail when a file is in the way of the entry directory")
+	}
+
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) {
+		t.Errorf("expected the os error to stay in the chain but got %v", err)
 	}
 }
 

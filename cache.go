@@ -162,8 +162,7 @@ func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 		expireBeforeTime := config.GetExpireTime(now)
 		err := c.Storage.Cleanup(key, config, expireBeforeTime)
 		if err != nil {
-			// deal with it
-			continue
+			warning("failed to cleanup cache key=%q: %s", key, err)
 		}
 	}
 }
