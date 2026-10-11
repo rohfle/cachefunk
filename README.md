@@ -147,6 +147,17 @@ Different params get separate retrieves.
 - **Panics**: a panic in the resolver returns an error to every waiting caller. Nothing is cached, and the next call retries normally.
 - **Nested calls**: nested calls for the same key and params using the original context return `ErrReentrantCall` instead of deadlocking (other keys and params resolve normally). Nested calls that drop the context (via `Wrap` or `WrapWithIgnore`) bypass this check and will still deadlock.
 
+## Failure handling
+
+A storage failure never fails the call. Entries that cannot be read, decoded or written are warned about
+(see `SetWarningLog`) and the wrapped function runs as if the cache were empty, so a full disk or an
+unavailable database degrades to no caching rather than to no service. A value that could not be stored is
+still returned to the caller, and the next call resolves it again.
+
+A value the cache cannot serialise is the exception: that is deterministic, so it is returned as an error
+rather than warned about. `CacheFunk.Set` reports both kinds of error to callers that manage entries
+directly.
+
 ## Notes about timestamps
 
 - Timestamps store the time when the cached item was saved with jitter applied
@@ -182,6 +193,12 @@ Different params get separate retrieves.
 	  This is a schema change: an existing cache table must be dropped before the
 	  first run, because the new `params_hash` column is `NOT NULL` and the old
 	  `(key, params)` index would otherwise keep enforcing its size limit
+	* A failed cache write no longer fails the call: the value that was resolved is
+	  returned uncached and a warning is logged, so a full disk or an unavailable
+	  database degrades to no caching rather than to no service. A value the cache
+	  cannot serialise is still returned as an error, since it will never be
+	  cacheable
+	* Warning messages print at most the first 128 bytes of the serialised params
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries

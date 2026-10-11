@@ -89,7 +89,54 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 	}
 }
 
-// runTestCacheErrDoNotCache checks that a resolver can return a result that must
+// failingSetStorage is a cache that reads as empty and cannot be written to,
+// which is what a full disk or an unavailable database looks like
+type failingSetStorage struct {
+	setErr error
+}
+
+func (s *failingSetStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+	return nil, ErrEntryNotFound
+}
+func (s *failingSetStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+	return s.setErr
+}
+func (s *failingSetStorage) Keys() ([]string, error) { return nil, nil }
+func (s *failingSetStorage) EntryCount() (int64, error) {
+	return 0, nil
+}
+func (s *failingSetStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+	return 0, nil
+}
+func (s *failingSetStorage) Clear() error { return nil }
+func (s *failingSetStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
+	return nil
+}
+
+// TestCacheWriteFailureReturnsResult checks that a storage which cannot be written
+// to does not fail the call: the resolved value is returned uncached, and the next
+// call resolves again rather than reading a half written entry.
+func TestCacheWriteFailureReturnsResult(t *testing.T) {
+	cache := &CacheFunk{
+		Config:  Config{},
+		Storage: &failingSetStorage{setErr: errors.New("no space left on device")},
+	}
+
+	calls := 0
+	Fetch := Wrap(cache, "writeFailure", func(params string) (string, error) {
+		calls++
+		return "resolved value", nil
+	})
+
+	if value, err := Fetch("p"); err != nil || value != "resolved value" {
+		t.Fatalf("expected the resolved value despite the failed write but got %q, %v", value, err)
+	}
+	if value, err := Fetch("p"); err != nil || value != "resolved value" || calls != 2 {
+		t.Errorf("expected nothing to be cached, so a second resolve, but got %q after %d calls (%v)", value, calls, err)
+	}
+}
+
+// TestCacheErrDoNotCache checks that a resolver can return a result that must
 // not be stored while the caller still receives that result, whether the
 // resolver returns ErrDoNotCache directly or wraps it with %w.
 func runTestCacheErrDoNotCache(t *testing.T, cache *CacheFunk) {

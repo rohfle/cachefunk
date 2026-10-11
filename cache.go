@@ -22,6 +22,11 @@ var (
 
 type LazyLoad func(any) error
 
+// errCannotSerialise marks a value the cache cannot represent at all, such as an
+// unsupported result type for the configured BodyCodec. Unlike a storage failure
+// the same value will fail every time so an error must be returned to the caller.
+var errCannotSerialise = errors.New("value cannot be serialised")
+
 type ignoreCacheKey struct{}
 
 // flightMarker is a context key; one distinct key per in-flight key+params.
@@ -105,7 +110,9 @@ func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any)
 
 	valueData, err := config.MarshalAndCompress(value)
 	if err != nil {
-		return err
+		// a value that cannot be represented in the cache is a problem with the
+		// result type or codec rather than the storage, so it is marked as such
+		return fmt.Errorf("%w: %w", errCannotSerialise, err)
 	}
 
 	return c.Storage.Set(key, config, params, valueData, timestamp)
@@ -232,6 +239,15 @@ func CacheWithContext[Params any, ResultType any](
 	return cacheImpl(ctx, cache, key, resolverFunc, GetIgnoreCacheFromContext(ctx), params)
 }
 
+// shortParams trims serialised params for a log line as the params can be kilobytes long
+func shortParams(params string) string {
+	const max = 128
+	if len(params) <= max {
+		return params
+	}
+	return fmt.Sprintf("%s... (%d bytes)", params[:max], len(params))
+}
+
 // tryCache returns hit=true with a decoded result for a fresh entry. If only an
 // expired entry is available and FallbackToExpired is set, lazyload is non-nil
 // so the caller can use it as a fallback.
@@ -244,12 +260,12 @@ func tryCache[R any](cache *CacheFunk, key string, config *KeyConfig, paramStr s
 		// Fresh entry exists but won't decode. Return a nil lazyload so the
 		// caller can't "fall back" to the same undecodable bytes: a retry would
 		// fail identically and only mask the corruption.
-		warning("ignoring error while decoding cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
+		warning("ignoring error while decoding cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), err)
 		var zero R
 		return zero, nil, false
 	}
 	if err != ErrEntryNotFound && err != ErrEntryExpired {
-		warning("ignoring error while getting cached result for key=%q paramStr=%+v: %s", key, paramStr, err)
+		warning("ignoring error while getting cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), err)
 	}
 	// ErrEntryExpired with FallbackToExpired: lazyload is non-nil and usable
 	return result, lazyload, false
@@ -335,8 +351,13 @@ func cacheImpl[Params any, ResultType any](
 		case rerr == nil:
 			// call to resolver was successful, set value in cache
 			if serr := cache.Set(key, config, paramStr, result); serr != nil {
-				// passthrough result and error to parent
-				return result, fmt.Errorf("set cache failed for key=%q paramStr=%+v: %w", key, paramStr, serr)
+				if errors.Is(serr, errCannotSerialise) {
+					// this value will never be cacheable
+					return result, fmt.Errorf("set cache failed for key=%q paramStr=%s: %w", key, shortParams(paramStr), serr)
+				}
+				// a write to storage that fails should return the valid value to the caller
+				// as failing here would result in retries of the same endpoint anyway
+				warning("failed to cache result for key=%q paramStr=%s: %s", key, shortParams(paramStr), serr)
 			}
 			return result, nil
 		case errors.Is(rerr, ErrDoNotCache):
@@ -351,7 +372,7 @@ func cacheImpl[Params any, ResultType any](
 				// for example, if an upstream webserver disappears
 				var stale ResultType
 				if lerr := fallback(&stale); lerr == nil {
-					warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%+v: %s", key, paramStr, rerr)
+					warning("falling back to expired cache result after fresh retrieval failed for key=%q paramStr=%s: %s", key, shortParams(paramStr), rerr)
 					return stale, nil
 				}
 			}
