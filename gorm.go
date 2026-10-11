@@ -1,6 +1,7 @@
 package cachefunk
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,15 +17,29 @@ type GORMStorage struct {
 	DB *gorm.DB
 }
 
-// CacheEntry is the cache table. (key, params) is unique and serves Get and the
-// upsert in Set; (key, timestamp) serves Cleanup and ExpiredEntryCount
+// CacheEntry is the cache table.
+// (key, params_hash) is unique and serves Get and the upsert in Set
+// (key, timestamp) serves Cleanup and ExpiredEntryCount
+//
+// ParamsHash holds a sha256 of Params used for indexing so a long params can't exceed
+// index entry limits and fail to store.
+// Params is kept for debugging and to confirm a match.
 type CacheEntry struct {
 	ID              int64     `json:"id" gorm:"primaryKey"`
 	Timestamp       time.Time `json:"timestamp" gorm:"not null;index:idx_key_timestamp,priority:2"`
-	Key             string    `json:"key" gorm:"uniqueIndex:idx_key_params;index:idx_key_timestamp,priority:1;not null"`
-	Params          string    `json:"params" gorm:"uniqueIndex:idx_key_params;not null"`
+	Key             string    `json:"key" gorm:"uniqueIndex:idx_key_params_hash,priority:1;index:idx_key_timestamp,priority:1;not null"`
+	Params          string    `json:"params" gorm:"not null"`
+	ParamsHash      []byte    `json:"params_hash" gorm:"uniqueIndex:idx_key_params_hash,priority:2;not null"`
 	CompressionType string    `json:"compression_type" gorm:"not null"`
 	Data            []byte    `json:"data" gorm:"not null"`
+}
+
+// paramsHash is what the indexed params_hash column holds: a sha256 of the
+// serialised params, always 32 bytes, so no params value can exceed a btree key
+// limit.
+func paramsHash(params string) []byte {
+	sum := sha256.Sum256([]byte(params))
+	return sum[:]
 }
 
 func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
@@ -46,9 +61,16 @@ func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
 func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	var cacheEntry CacheEntry
 
-	// map conditions make gorm quote the column names. A raw "key = ?" fragment
-	// is passed through unquoted, and key is a reserved word in MySQL
-	result := c.DB.Where(map[string]any{"key": key, "params": params}).First(&cacheEntry)
+	// map conditions and clause.Eq make gorm quote the column names: a raw
+	// "key = ?" fragment is passed through unquoted, and key is a reserved word
+	// in MySQL. The hash goes through clause.Eq because a []byte inside a map
+	// condition is expanded into an IN list of byte values, which never matches.
+	// params is compared as well, so a hash collision cannot return another
+	// entry's value
+	result := c.DB.
+		Where(map[string]any{"key": key, "params": params}).
+		Where(clause.Eq{Column: clause.Column{Name: "params_hash"}, Value: paramsHash(params)}).
+		First(&cacheEntry)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, ErrEntryNotFound
@@ -79,6 +101,7 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 	cacheEntry := CacheEntry{
 		Key:             key,
 		Params:          params,
+		ParamsHash:      paramsHash(params),
 		Data:            value,
 		Timestamp:       timestamp,
 		CompressionType: config.GetBodyCompression().String(),
@@ -86,8 +109,8 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 
 	// create or update cacheEntry
 	result := c.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "key"}, {Name: "params"}},
-		DoUpdates: clause.AssignmentColumns([]string{"data", "timestamp", "compression_type"}),
+		Columns:   []clause.Column{{Name: "key"}, {Name: "params_hash"}},
+		DoUpdates: clause.AssignmentColumns([]string{"params", "data", "timestamp", "compression_type"}),
 	}).Create(&cacheEntry)
 	if result.Error != nil {
 		return result.Error

@@ -1,7 +1,11 @@
 package cachefunk
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -34,9 +38,9 @@ func (r *sqlRecorder) Trace(ctx context.Context, begin time.Time, fc func() (str
 	r.statements = append(r.statements, statement)
 }
 
-// TestGORMStorageIndexes checks the indexes the storage depends on: (key, params)
-// for lookup and upsert, (key, timestamp) for cleanup and expired counting. The
-// second must also appear when an older table is migrated.
+// TestGORMStorageIndexes checks the indexes the storage depends on: the unique
+// (key, params_hash) for lookup and upsert, and (key, timestamp) for cleanup and
+// expired counting. Both must appear when an older table is migrated.
 func TestGORMStorageIndexes(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:indexes_test?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
@@ -46,21 +50,89 @@ func TestGORMStorageIndexes(t *testing.T) {
 		t.Fatalf("error while setting up gorm cache storage: %s", err)
 	}
 
-	for _, name := range []string{"idx_key_params", "idx_key_timestamp"} {
+	indexes := []string{"idx_key_params_hash", "idx_key_timestamp"}
+	for _, name := range indexes {
 		if !db.Migrator().HasIndex(&CacheEntry{}, name) {
 			t.Errorf("expected index %q to exist after migration", name)
 		}
 	}
 
-	// a table written before the index existed gains it on the next migration
-	if err := db.Migrator().DropIndex(&CacheEntry{}, "idx_key_timestamp"); err != nil {
-		t.Fatalf("error while dropping idx_key_timestamp: %s", err)
+	// the unique index has to lead with key, or a lookup that constrains key
+	// cannot use it
+	var columns []string
+	rows, err := db.Raw("PRAGMA index_info(idx_key_params_hash)").Rows()
+	if err != nil {
+		t.Fatalf("error while reading the index columns: %s", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seqno, cid int
+		var name string
+		if err := rows.Scan(&seqno, &cid, &name); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, name)
+	}
+	if joined := strings.Join(columns, ","); joined != "key,params_hash" {
+		t.Errorf("expected the unique index over (key, params_hash) but it is over (%s)", joined)
+	}
+
+	// a table written before an index existed gains it on the next migration
+	for _, name := range indexes {
+		if err := db.Migrator().DropIndex(&CacheEntry{}, name); err != nil {
+			t.Fatalf("error while dropping %s: %s", name, err)
+		}
 	}
 	if _, err := NewGORMStorage(db); err != nil {
 		t.Fatalf("error while migrating again: %s", err)
 	}
-	if !db.Migrator().HasIndex(&CacheEntry{}, "idx_key_timestamp") {
-		t.Error("expected the migration to recreate idx_key_timestamp on an existing table")
+	for _, name := range indexes {
+		if !db.Migrator().HasIndex(&CacheEntry{}, name) {
+			t.Errorf("expected the migration to recreate %s on an existing table", name)
+		}
+	}
+}
+
+// TestGORMStorageParamsHash checks that params longer than a btree index entry
+// can hold are cached, and that the indexed column holds a sha256 of the params
+// the codec serialised.
+func TestGORMStorageParamsHash(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:paramshash_test?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal("failed to connect database")
+	}
+	storage, err := NewGORMStorage(db)
+	if err != nil {
+		t.Fatalf("error while setting up gorm cache storage: %s", err)
+	}
+	cache := &CacheFunk{Config: Config{}, Storage: storage}
+
+	buf := make([]byte, 4096)
+	if _, err := rand.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	long := hex.EncodeToString(buf) // 8 KB of incompressible params
+
+	calls := 0
+	Fetch := Wrap(cache, "longParams", func(params string) (string, error) {
+		calls++
+		return "value for long params", nil
+	})
+
+	if value, err := Fetch(long); err != nil || value != "value for long params" {
+		t.Fatalf("expected long params to be cached but got %q, %v", value, err)
+	}
+	if value, err := Fetch(long); err != nil || value != "value for long params" || calls != 1 {
+		t.Errorf("expected a cache hit for long params but got %q after %d resolver calls (%v)", value, calls, err)
+	}
+
+	var stored []byte
+	if err := db.Raw("SELECT params_hash FROM cache_entries WHERE key = ?", "longParams").Row().Scan(&stored); err != nil {
+		t.Fatalf("error while reading params_hash: %s", err)
+	}
+	want := sha256.Sum256([]byte(`"` + long + `"`)) // params as the codec serialised them
+	if len(stored) != sha256.Size || !bytes.Equal(stored, want[:]) {
+		t.Errorf("expected params_hash to be %d bytes of sha256(params) but got %d bytes", sha256.Size, len(stored))
 	}
 }
 

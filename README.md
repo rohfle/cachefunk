@@ -127,9 +127,9 @@ global `cachefunk.DefaultKeyConfig`.
 `ttl_jitter` seconds are added to the timestamp of an entry, capped so jitter can never extend an
 entry's lifetime past two times its TTL.
 
-Params are the serialised arguments that identify an entry and they are part of a unique index, so
-on PostgreSQL and MySQL keep them under about 2 KB: an index entry cannot exceed roughly 2704 bytes
-(PostgreSQL) or 3072 bytes (InnoDB), and a longer value fails to store. SQLite has no such limit.
+Params are serialised arguments that identify an entry. The database storage uses a sha256 of params
+for indexing rather than the value, as index entries have limits (about 2.7 KB in PostgreSQL, 3 KB in MySQL).
+The value itself is still stored to confirm a match and for debugging purposes.
 
 `Cleanup` and `ExpiredEntryCount` enumerate cache keys that have entries in storage and retrieve each
 one's config through `Config.Get` (see `CacheStorage.Keys`). Entries cached under a key that
@@ -176,6 +176,12 @@ Different params get separate retrieves.
 	* Removed the unused `ParameterEncoder`, and made `DiskStorage.Dump`,
 	  `InMemoryStorage.Dump`, `GORMStorage.Dump` and `DiskStorage.IterateFiles`
 	  private. `Dump` is no longer part of `CacheStorage`
+	* The database storage indexes a sha256 of the params instead of the params
+	  themselves, so params longer than an index entry can hold (about 2704 bytes
+	  on PostgreSQL, 3072 on MySQL) are cached instead of failing to store.
+	  This is a schema change: an existing cache table must be dropped before the
+	  first run, because the new `params_hash` column is `NOT NULL` and the old
+	  `(key, params)` index would otherwise keep enforcing its size limit
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries
