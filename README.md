@@ -162,6 +162,10 @@ Failures the cache absorbs are counted on the `CacheFunk` value so they can be a
 depending on log volume: `FaultCounts` returns cumulative storage read, decode, write and serialisation
 failure counts, safe to read while the cache is in use.
 
+Warnings are limited by format string, so the same warning is printed at most once per `DefaultWarningInterval`
+with the number of suppressed warnings reported on the next one - a
+cache that cannot be written to warns once rather than once per call. Setting `SetWarningInterval` to zero prints every warning.
+
 ## Notes about timestamps
 
 - Timestamps store the time when the cached item was saved with jitter applied
@@ -206,6 +210,10 @@ failure counts, safe to read while the cache is in use.
 	* `CacheFunk.FaultCounts` reports cumulative cache side failure counts (storage
 	  read, decode, write and serialisation) so an absorbed failure can be alerted
 	  on without depending on the warning log
+	* Warnings are printed at most once per `DefaultWarningInterval` per format
+	  string, with the number suppressed reported on the next one: a failing cache
+	  warns once an interval instead of once per call. `SetWarningInterval` changes
+	  or disables the interval
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries
