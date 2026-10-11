@@ -34,6 +34,36 @@ func (r *sqlRecorder) Trace(ctx context.Context, begin time.Time, fc func() (str
 	r.statements = append(r.statements, statement)
 }
 
+// TestGORMStorageIndexes checks the indexes the storage depends on: (key, params)
+// for lookup and upsert, (key, timestamp) for cleanup and expired counting. The
+// second must also appear when an older table is migrated.
+func TestGORMStorageIndexes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:indexes_test?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal("failed to connect database")
+	}
+	if _, err := NewGORMStorage(db); err != nil {
+		t.Fatalf("error while setting up gorm cache storage: %s", err)
+	}
+
+	for _, name := range []string{"idx_key_params", "idx_key_timestamp"} {
+		if !db.Migrator().HasIndex(&CacheEntry{}, name) {
+			t.Errorf("expected index %q to exist after migration", name)
+		}
+	}
+
+	// a table written before the index existed gains it on the next migration
+	if err := db.Migrator().DropIndex(&CacheEntry{}, "idx_key_timestamp"); err != nil {
+		t.Fatalf("error while dropping idx_key_timestamp: %s", err)
+	}
+	if _, err := NewGORMStorage(db); err != nil {
+		t.Fatalf("error while migrating again: %s", err)
+	}
+	if !db.Migrator().HasIndex(&CacheEntry{}, "idx_key_timestamp") {
+		t.Error("expected the migration to recreate idx_key_timestamp on an existing table")
+	}
+}
+
 // TestGORMStorageQuotesReservedColumns checks that column names reach the
 // database quoted. gorm passes raw fragments such as "key = ?" through
 // unquoted, and key is a reserved word in MySQL, which made every get, cleanup

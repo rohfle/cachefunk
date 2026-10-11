@@ -16,10 +16,12 @@ type GORMStorage struct {
 	DB *gorm.DB
 }
 
+// CacheEntry is the cache table. (key, params) is unique and serves Get and the
+// upsert in Set; (key, timestamp) serves Cleanup and ExpiredEntryCount
 type CacheEntry struct {
 	ID              int64     `json:"id" gorm:"primaryKey"`
-	Timestamp       time.Time `json:"timestamp" gorm:"not null"`
-	Key             string    `json:"key" gorm:"uniqueIndex:idx_key_params;not null"`
+	Timestamp       time.Time `json:"timestamp" gorm:"not null;index:idx_key_timestamp,priority:2"`
+	Key             string    `json:"key" gorm:"uniqueIndex:idx_key_params;index:idx_key_timestamp,priority:1;not null"`
 	Params          string    `json:"params" gorm:"uniqueIndex:idx_key_params;not null"`
 	CompressionType string    `json:"compression_type" gorm:"not null"`
 	Data            []byte    `json:"data" gorm:"not null"`
@@ -29,6 +31,9 @@ func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
 	cache := GORMStorage{
 		DB: db.Session(&gorm.Session{
 			Logger: logger.Default.LogMode(logger.Silent),
+			// every statement here is a single upsert, delete or count, so the
+			// transaction gorm wraps around each write only adds round trips
+			SkipDefaultTransaction: true,
 		}),
 	}
 	err := db.AutoMigrate(&CacheEntry{})
@@ -105,6 +110,7 @@ func (c *GORMStorage) Keys() ([]string, error) {
 
 // Clear will delete all cache entries
 func (c *GORMStorage) Clear() error {
+	// gorm refuses a delete that has no conditions, and "1 = 1" is the condition
 	result := c.DB.Where("1 = 1").Delete(&CacheEntry{})
 	if result.Error != nil {
 		return result.Error

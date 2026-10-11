@@ -127,6 +127,10 @@ global `cachefunk.DefaultKeyConfig`.
 `ttl_jitter` seconds are added to the timestamp of an entry, capped so jitter can never extend an
 entry's lifetime past two times its TTL.
 
+Params are the serialised arguments that identify an entry and they are part of a unique index, so
+on PostgreSQL and MySQL keep them under about 2 KB: an index entry cannot exceed roughly 2704 bytes
+(PostgreSQL) or 3072 bytes (InnoDB), and a longer value fails to store. SQLite has no such limit.
+
 `Cleanup` and `ExpiredEntryCount` enumerate cache keys that have entries in storage and retrieve each
 one's config through `Config.Get` (see `CacheStorage.Keys`). Entries cached under a key that
 does not have configuration listed in `Config` - those relying on `DefaultKey` or the global
@@ -166,6 +170,9 @@ Different params get separate retrieves.
 	* Honour ErrDoNotCache when a resolver wraps it with an error
 	* Treat a nil entry in Config as unset rather than panicking
 	* Quote column names in GORM storage queries, for databases where key is reserved
+	* Added a (key, timestamp) index so cleanup and expired counting are index
+	  scans, and dropped the implicit transaction around each write.
+	  `AutoMigrate` creates the index on the first run after upgrading
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries
