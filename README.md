@@ -158,6 +158,10 @@ A value the cache cannot serialise is the exception: that is deterministic, so i
 rather than warned about. `CacheFunk.Set` reports both kinds of error to callers that manage entries
 directly.
 
+Failures the cache absorbs are counted on the `CacheFunk` value so they can be alerted on without
+depending on log volume: `FaultCounts` returns cumulative storage read, decode, write and serialisation
+failure counts, safe to read while the cache is in use.
+
 ## Notes about timestamps
 
 - Timestamps store the time when the cached item was saved with jitter applied
@@ -199,6 +203,9 @@ directly.
 	  cannot serialise is still returned as an error, since it will never be
 	  cacheable
 	* Warning messages print at most the first 128 bytes of the serialised params
+	* `CacheFunk.FaultCounts` reports cumulative cache side failure counts (storage
+	  read, decode, write and serialisation) so an absorbed failure can be alerted
+	  on without depending on the warning log
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries

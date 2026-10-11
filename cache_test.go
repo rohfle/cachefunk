@@ -92,10 +92,14 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 // failingSetStorage is a cache that reads as empty and cannot be written to,
 // which is what a full disk or an unavailable database looks like
 type failingSetStorage struct {
+	getErr error
 	setErr error
 }
 
 func (s *failingSetStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
 	return nil, ErrEntryNotFound
 }
 func (s *failingSetStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
@@ -133,6 +137,54 @@ func TestCacheWriteFailureReturnsResult(t *testing.T) {
 	}
 	if value, err := Fetch("p"); err != nil || value != "resolved value" || calls != 2 {
 		t.Errorf("expected nothing to be cached, so a second resolve, but got %q after %d calls (%v)", value, calls, err)
+	}
+}
+
+// TestFaultCounts checks that the failures a cache absorbs or reports are counted,
+// so a broken cache can be alerted on without depending on the warning log
+func TestFaultCounts(t *testing.T) {
+	// a write that fails: the caller gets the value and the counter records it
+	cache := &CacheFunk{Config: Config{}, Storage: &failingSetStorage{setErr: errors.New("no space left on device")}}
+	Fetch := Wrap(cache, "writeFailure", func(params string) (string, error) { return "value", nil })
+	if _, err := Fetch("p"); err != nil {
+		t.Fatalf("expected the value despite the failed write: %s", err)
+	}
+	if faults := cache.FaultCounts(); faults.WriteErrors != 1 || faults.SerialiseErrors != 0 {
+		t.Errorf("expected 1 write error and no serialise errors but got %+v", faults)
+	}
+
+	// a read that fails
+	cache = &CacheFunk{Config: Config{}, Storage: &failingSetStorage{getErr: errors.New("database is down")}}
+	Fetch = Wrap(cache, "readFailure", func(params string) (string, error) { return "value", nil })
+	if _, err := Fetch("p"); err != nil {
+		t.Fatalf("expected the value despite the failed read: %s", err)
+	}
+	if faults := cache.FaultCounts(); faults.ReadErrors < 1 {
+		t.Errorf("expected a read error to be counted but got %+v", faults)
+	}
+
+	// a value that cannot be serialised: counted and reported to the caller
+	cache = &CacheFunk{Config: Config{}, Storage: NewInMemoryStorage()}
+	Bad := Wrap(cache, "unserialisable", func(params string) (func(), error) { return func() {}, nil })
+	if _, err := Bad("p"); err == nil {
+		t.Fatal("expected an error for an unserialisable result")
+	}
+	if faults := cache.FaultCounts(); faults.SerialiseErrors != 1 {
+		t.Errorf("expected 1 serialise error but got %+v", faults)
+	}
+
+	// an entry that cannot be decoded: the resolver covers for it
+	storage := NewInMemoryStorage()
+	if err := storage.Set("undecodable", DefaultKeyConfig, `"p"`, []byte("not a zstd frame"), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	cache = &CacheFunk{Config: Config{}, Storage: storage}
+	Fetch = Wrap(cache, "undecodable", func(params string) (string, error) { return "resolved", nil })
+	if value, err := Fetch("p"); err != nil || value != "resolved" {
+		t.Fatalf("expected the resolver to cover the undecodable entry but got %q, %v", value, err)
+	}
+	if faults := cache.FaultCounts(); faults.DecodeErrors < 1 {
+		t.Errorf("expected a decode error to be counted but got %+v", faults)
 	}
 }
 

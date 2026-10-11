@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -49,6 +50,32 @@ type CacheFunk struct {
 	// single upstream call. The zero value is ready to use. Do not copy a
 	// CacheFunk by value after first use.
 	flights singleflight.Group
+
+	// faults counts caching failures, read using the funciton FaultCounts.
+	faults faultCounts
+}
+
+// faultCounts holds the counters behind CacheFunk.FaultCounts
+type faultCounts struct {
+	readErrors      atomic.Int64
+	decodeErrors    atomic.Int64
+	writeErrors     atomic.Int64
+	serialiseErrors atomic.Int64
+}
+
+// FaultCounts are cumulative counts of cache side failures, as returned by
+// CacheFunk.FaultCounts.
+type FaultCounts struct {
+	// ReadErrors counts storage reads that failed
+	ReadErrors int64
+	// DecodeErrors counts cached values that could not be decoded
+	DecodeErrors int64
+	// WriteErrors counts values that could not be stored. The caller is not told
+	// about these - the resolved value is returned uncached
+	WriteErrors int64
+	// SerialiseErrors counts values that could not be serialised for storage,
+	// which is also reported to the caller as an error
+	SerialiseErrors int64
 }
 
 type CacheStorage interface {
@@ -116,6 +143,17 @@ func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any)
 	}
 
 	return c.Storage.Set(key, config, params, valueData, timestamp)
+}
+
+// FaultCounts returns the cumulative counts of cache side failures atomically.
+// Failures the cache absorbs are otherwise only visible in the warning log.
+func (c *CacheFunk) FaultCounts() FaultCounts {
+	return FaultCounts{
+		ReadErrors:      c.faults.readErrors.Load(),
+		DecodeErrors:    c.faults.decodeErrors.Load(),
+		WriteErrors:     c.faults.writeErrors.Load(),
+		SerialiseErrors: c.faults.serialiseErrors.Load(),
+	}
 }
 
 func (c *CacheFunk) EntryCount() (int64, error) {
@@ -260,11 +298,13 @@ func tryCache[R any](cache *CacheFunk, key string, config *KeyConfig, paramStr s
 		// Fresh entry exists but won't decode. Return a nil lazyload so the
 		// caller can't "fall back" to the same undecodable bytes: a retry would
 		// fail identically and only mask the corruption.
+		cache.faults.decodeErrors.Add(1)
 		warning("ignoring error while decoding cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), err)
 		var zero R
 		return zero, nil, false
 	}
 	if err != ErrEntryNotFound && err != ErrEntryExpired {
+		cache.faults.readErrors.Add(1)
 		warning("ignoring error while getting cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), err)
 	}
 	// ErrEntryExpired with FallbackToExpired: lazyload is non-nil and usable
@@ -353,10 +393,12 @@ func cacheImpl[Params any, ResultType any](
 			if serr := cache.Set(key, config, paramStr, result); serr != nil {
 				if errors.Is(serr, errCannotSerialise) {
 					// this value will never be cacheable
+					cache.faults.serialiseErrors.Add(1)
 					return result, fmt.Errorf("set cache failed for key=%q paramStr=%s: %w", key, shortParams(paramStr), serr)
 				}
 				// a write to storage that fails should return the valid value to the caller
 				// as failing here would result in retries of the same endpoint anyway
+				cache.faults.writeErrors.Add(1)
 				warning("failed to cache result for key=%q paramStr=%s: %s", key, shortParams(paramStr), serr)
 			}
 			return result, nil
