@@ -213,7 +213,7 @@ func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 	// directories of entries that get removed, so they can be cleaned up
 	// after the walk (see pruneEmptyDirs)
 	var emptied []string
-	c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
+	c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
 		info, err := file.Info()
 		if err != nil {
@@ -254,7 +254,7 @@ func pruneEmptyDirs(dirs []string, stop string) {
 
 func (c *DiskStorage) EntryCount() (int64, error) {
 	var count int64
-	c.IterateFiles(c.BasePath, func(parent string, file fs.DirEntry) {
+	c.iterateFiles(c.BasePath, func(parent string, file fs.DirEntry) {
 		count += 1
 	})
 	return count, nil
@@ -269,7 +269,7 @@ func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBef
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return 0, nil // key doesnt exist therefore count is 0
 	}
-	c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
+	c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
 		info, err := file.Info()
 		if err != nil {
@@ -284,7 +284,7 @@ func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBef
 	return count, nil
 }
 
-func (c *DiskStorage) IterateFiles(basePath string, callback func(string, fs.DirEntry)) {
+func (c *DiskStorage) iterateFiles(basePath string, callback func(string, fs.DirEntry)) {
 	dirsLeft := []string{basePath}
 	var curDir string
 	for len(dirsLeft) > 0 {
@@ -305,12 +305,12 @@ func (c *DiskStorage) IterateFiles(basePath string, callback func(string, fs.Dir
 	}
 }
 
-// Dump prints out a sample hexdump of cached content
-func (c *DiskStorage) Dump(n int64) {
+// dump prints out a sample hexdump of cached content for test debugging
+func (c *DiskStorage) dump(n int64) {
 	var count int64
 	basePath := c.BasePath
 	if _, err := os.Stat(basePath); !os.IsNotExist(err) {
-		c.IterateFiles(basePath, func(parent string, file fs.DirEntry) {
+		c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
 			if count == n {
 				fmt.Println("...")
 			}

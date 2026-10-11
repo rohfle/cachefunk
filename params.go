@@ -12,8 +12,6 @@ type ParamCodec interface {
 	String() string
 }
 
-type ParameterEncoder func(interface{}) (string, error)
-
 type jsonParams struct{}
 
 var JSONParams = &jsonParams{}

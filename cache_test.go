@@ -12,6 +12,23 @@ import (
 	"time"
 )
 
+// dumpStorage prints a sample of what a storage holds, for the tests that show
+// the cache when they fail. Dump is not part of CacheStorage, so the storages
+// that provide it are asserted below.
+func dumpStorage(storage CacheStorage, n int64) {
+	if dumper, ok := storage.(interface{ dump(int64) }); ok {
+		dumper.dump(n)
+	}
+}
+
+// the in-package storages offer the debug dump the tests use, checked at compile
+// time so the helper above cannot silently print nothing
+var (
+	_ interface{ dump(int64) } = (*InMemoryStorage)(nil)
+	_ interface{ dump(int64) } = (*DiskStorage)(nil)
+	_ interface{ dump(int64) } = (*GORMStorage)(nil)
+)
+
 // runTestCleanupUnconfiguredKey checks that expired counting and cleanup are
 // driven by the keys that have entries in the storage rather than the keys
 // listed in Config. An unlisted key resolves through DefaultKey, and its
@@ -807,7 +824,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		Params *HelloWorldParams
 	}
 
-	cache.Storage.Dump(1)
+	dumpStorage(cache.Storage, 1)
 
 	helloWorld := func(ignoreCache bool, params *HelloWorldParams) (*HelloWorldResult, error) {
 		helloCounter += 1
@@ -862,7 +879,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		t.Fatalf("expected 3 cached values got %d", count)
 	}
 
-	cache.Storage.Dump(1)
+	dumpStorage(cache.Storage, 1)
 
 	HelloWorld2 := WrapWithIgnore(cache, "helloWorld2", helloWorld)
 

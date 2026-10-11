@@ -173,6 +173,9 @@ Different params get separate retrieves.
 	* Added a (key, timestamp) index so cleanup and expired counting are index
 	  scans, and dropped the implicit transaction around each write.
 	  `AutoMigrate` creates the index on the first run after upgrading
+	* Removed the unused `ParameterEncoder`, and made `DiskStorage.Dump`,
+	  `InMemoryStorage.Dump`, `GORMStorage.Dump` and `DiskStorage.IterateFiles`
+	  private. `Dump` is no longer part of `CacheStorage`
 * 0.4.1
 	* Cache TTLEntryImmediatelyExpires entries when FallbackToExpired is set
 	* Added lazy load of existing expired entries

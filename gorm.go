@@ -151,7 +151,7 @@ func (c *GORMStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBef
 	return count, nil
 }
 
-func (c *GORMStorage) Dump(n int64) {
+func (c *GORMStorage) dump(n int64) {
 	var results []*CacheEntry
 	result := c.DB.Model(&CacheEntry{}).Find(&results)
 	if result.Error != nil {

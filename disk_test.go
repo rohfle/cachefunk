@@ -40,7 +40,7 @@ func TestDiskStorage(t *testing.T) {
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
 	cache.Clear()
 	expireAllEntries := func() {
-		storage.IterateFiles(storage.BasePath, func(parent string, file fs.DirEntry) {
+		storage.iterateFiles(storage.BasePath, func(parent string, file fs.DirEntry) {
 			if _, err := file.Info(); err != nil {
 				return
 			}

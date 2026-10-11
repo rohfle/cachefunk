@@ -124,7 +124,7 @@ func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expir
 	return count, nil
 }
 
-func (c *InMemoryStorage) Dump(n int64) {
+func (c *InMemoryStorage) dump(n int64) {
 	// snapshot the entries while holding the lock, then print without it
 	type row struct {
 		key    string

@@ -61,8 +61,6 @@ type CacheStorage interface {
 	Clear() error
 	// Delete entries that have timestamps in cache before expireBeforeTime
 	Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error
-	// Print all cached entries for test debugging purposes
-	Dump(n int64)
 }
 
 func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyLoad, error) {
