@@ -196,6 +196,87 @@ func TestStorageTimeoutOnWrite(t *testing.T) {
 	}
 }
 
+// TestStorageTimeoutOnRead checks that a caller's own read is bounded when its
+// context has no deadline, is counted as a read fault, and does not fail the
+// call.
+func TestStorageTimeoutOnRead(t *testing.T) {
+	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
+	var gets atomic.Int64
+	storage.onGet = func(ctx context.Context) error {
+		if gets.Add(1) == 1 {
+			<-ctx.Done() // the caller's fast-path read must be bounded
+			return ctx.Err()
+		}
+		return ErrEntryNotFound
+	}
+	cache := newProbeCache(storage)
+	cache.StorageTimeout = 25 * time.Millisecond
+
+	value, err := Cache(cache, "k", func(p string) (string, error) { return "resolved", nil }, "p")
+	if err != nil || value != "resolved" {
+		t.Fatalf("got %q, %v; want the resolved value", value, err)
+	}
+	if faults := cache.FaultCounts(); faults.ReadErrors != 1 {
+		t.Fatalf("expected 1 read fault, got %+v", faults)
+	}
+}
+
+// TestStorageTimeoutOnFlightRead checks that the flight's re-read is bounded, so
+// a storage that hangs after the fast-path miss does not block the waiters: the
+// resolver still runs and the call succeeds.
+func TestStorageTimeoutOnFlightRead(t *testing.T) {
+	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
+	var gets atomic.Int64
+	storage.onGet = func(ctx context.Context) error {
+		if gets.Add(1) == 1 {
+			return ErrEntryNotFound
+		}
+		<-ctx.Done() // the flight's re-read must be bounded
+		return ctx.Err()
+	}
+	cache := newProbeCache(storage)
+	cache.StorageTimeout = 25 * time.Millisecond
+
+	var calls atomic.Int64
+	value, err := Cache(cache, "k", func(p string) (string, error) {
+		calls.Add(1)
+		return "resolved", nil
+	}, "p")
+	if err != nil || value != "resolved" {
+		t.Fatalf("got %q, %v; want the resolved value", value, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("resolver ran %d times, want 1", calls.Load())
+	}
+	if faults := cache.FaultCounts(); faults.ReadErrors != 1 {
+		t.Fatalf("expected 1 read fault, got %+v", faults)
+	}
+}
+
+// TestReadContextBoundsCancelledCaller checks that a caller that is already gone
+// gets a detached read that stays bounded even when StorageTimeout disables
+// bounds everywhere else.
+func TestReadContextBoundsCancelledCaller(t *testing.T) {
+	cache := newProbeCache(NewInMemoryStorage())
+	cache.StorageTimeout = -1
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	readCtx, release := cache.readContext(ctx)
+	defer release()
+
+	if readCtx.Err() != nil {
+		t.Fatalf("read context is already done: %v", readCtx.Err())
+	}
+	deadline, ok := readCtx.Deadline()
+	if !ok {
+		t.Fatal("read context for a caller that is gone has no deadline")
+	}
+	if remaining := time.Until(deadline); remaining < DefaultStorageTimeout-time.Second {
+		t.Fatalf("deadline is %s away, want about %s", remaining, DefaultStorageTimeout)
+	}
+}
+
 // TestLeaderCancelsWaiterContinues checks that the flight outlives the caller
 // that started it.
 func TestLeaderCancelsWaiterContinues(t *testing.T) {
@@ -318,7 +399,11 @@ func (c *cancelAfterCtx) Err() error {
 // TestCleanupCancelledMidWalk checks that Cleanup stops promptly, reports the
 // cancellation with the key it reached, and leaves the rest for the next call.
 func TestCleanupCancelledMidWalk(t *testing.T) {
-	storage, err := NewDiskStorage(t.TempDir(), nil)
+	// a flat layout, so the cancellation budget is spent on entry files rather
+	// than on the hashed pather's directories
+	storage, err := NewDiskStorage(t.TempDir(), func(params string) []string {
+		return []string{params}
+	})
 	if err != nil {
 		t.Fatalf("NewDiskStorage: %s", err)
 	}
@@ -349,8 +434,8 @@ func TestCleanupCancelledMidWalk(t *testing.T) {
 	if countErr != nil {
 		t.Fatalf("EntryCount: %s", countErr)
 	}
-	if remaining == 0 {
-		t.Fatal("Cleanup removed every entry; the walk was not interrupted")
+	if remaining == 0 || remaining == entries {
+		t.Fatalf("Cleanup removed %d of %d entries; want some, not all", entries-remaining, entries)
 	}
 
 	if err := cache.Cleanup(ctx, true); err != nil {

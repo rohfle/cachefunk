@@ -67,9 +67,9 @@ func SetIgnoreCacheInContext(ctx context.Context, value bool) context.Context {
 	return context.WithValue(ctx, ignoreCacheKey{}, value)
 }
 
-// DefaultStorageTimeout bounds a storage call made on behalf of a flight, which
-// is detached from any caller's deadline. Without a bound, a hung connection
-// blocks every waiter on that key.
+// DefaultStorageTimeout bounds a storage call made on behalf of a flight and a
+// caller's own read when its context has no deadline. Without a bound, a hung
+// connection blocks every waiter on that key.
 const DefaultStorageTimeout = 5 * time.Second
 
 // CacheFunk is a cache in front of a [CacheStorage]. It is safe for concurrent
@@ -80,8 +80,10 @@ type CacheFunk struct {
 	Config Config
 	// Storage stores the cached values. A nil Storage panics on first use.
 	Storage CacheStorage
-	// StorageTimeout bounds storage calls made on behalf of a flight. Zero uses
-	// DefaultStorageTimeout; a negative value leaves them unbounded.
+	// StorageTimeout bounds storage calls made on behalf of a flight, and a
+	// caller's own read when its context has no deadline. Zero uses
+	// DefaultStorageTimeout; a negative value leaves them unbounded, except the
+	// read of a caller that is already gone, which stays bounded.
 	StorageTimeout time.Duration
 
 	// flights collapses concurrent misses for the same key and params into
@@ -118,10 +120,9 @@ type FaultCounts struct {
 // [DiskStorage] and [GORMStorage] implement it.
 //
 // Implementations must be safe for concurrent use by multiple goroutines. They
-// must honour ctx where the backend allows, return ctx.Err() or an error
-// wrapping it once the call is cancelled, and must not retain ctx after
-// returning. A method that ignores ctx remains conformant but cannot be
-// interrupted.
+// must check ctx on entry, honour cancellation where the backend allows, return
+// ctx.Err() or an error wrapping it once the call is cancelled, and must not
+// retain ctx after returning. The storagetest package enforces the contract.
 type CacheStorage interface {
 	// Get returns the entry stored for key and params. A missing entry returns
 	// ErrEntryNotFound. An expired entry returns ErrEntryExpired, along with the
@@ -197,6 +198,9 @@ func (c *CacheFunk) Get(ctx context.Context, key string, config *KeyConfig, para
 // error wrapping [ErrCannotSerialise]. A TTL of TTLEntryImmediatelyExpires
 // without FallbackToExpired stores nothing and returns nil.
 func (c *CacheFunk) Set(ctx context.Context, key string, config *KeyConfig, params string, value any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if config.TTL == TTLEntryImmediatelyExpires && !config.FallbackToExpired {
 		return nil // discard the entry - do not cache
 	}
@@ -263,7 +267,7 @@ func (c *CacheFunk) ExpiredEntryCount(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// storageTimeout returns the bound for flight-scoped storage calls, or zero when
+// storageTimeout returns the effective bound for storage calls, or zero when
 // bounds are disabled. A zero StorageTimeout means DefaultStorageTimeout.
 func (c *CacheFunk) storageTimeout() time.Duration {
 	switch {
@@ -283,6 +287,25 @@ func (c *CacheFunk) storageContext(parent context.Context) (context.Context, con
 		return context.WithTimeout(parent, d)
 	}
 	return parent, func() {}
+}
+
+// readContext returns the context for the caller's own cache read. A caller
+// deadline bounds it; otherwise the storage timeout does, and a negative
+// StorageTimeout leaves it unbounded. A caller that is already gone is still
+// served a live entry, so its read is detached from the cancellation and always
+// bounded: an unbounded read would leave a caller that gave up waiting.
+func (c *CacheFunk) readContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() != nil {
+		d := c.storageTimeout()
+		if d <= 0 {
+			d = DefaultStorageTimeout
+		}
+		return context.WithTimeout(context.WithoutCancel(ctx), d)
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return c.storageContext(ctx)
 }
 
 // Clear removes every entry, across all keys.
@@ -395,9 +418,12 @@ func CacheWithIgnore[Params any, ResultType any](
 // CacheWithContext is [Cache] with ctx passed to resolverFunc and used to bound
 // waiting. The resolver runs detached from ctx's cancellation, so one caller
 // giving up does not fail the others sharing the retrieval. Each caller stops
-// waiting when its own ctx ends. A context marked by [SetIgnoreCacheInContext]
-// skips reading the cache. The resolver and the flight's storage calls see ctx's
-// values but not its cancellation, and those storage calls are bounded by
+// waiting when its own ctx ends, apart from one read: a caller that was already
+// gone is still served a live entry, so that read is detached and bounded by
+// [CacheFunk.StorageTimeout], as is a caller read made with no deadline. A
+// context marked by [SetIgnoreCacheInContext] skips reading the cache. The
+// resolver and the flight's storage calls see ctx's values but not its
+// cancellation, and those storage calls are bounded by
 // [CacheFunk.StorageTimeout].
 func CacheWithContext[Params any, ResultType any](
 	cache *CacheFunk,
@@ -476,22 +502,23 @@ func cacheImpl[Params any, ResultType any](
 		return zero, fmt.Errorf("failed to marshal parameters key=%q params=%+v: %w", key, params, err)
 	}
 
-	// Fast path: fresh cache hit, no coordination needed. A caller that is
-	// already gone still gets an instant hit, so that read is detached and
-	// bounded; the resolve below is skipped either way.
+	// Fast path: fresh cache hit, no coordination needed. The caller's deadline
+	// bounds its own read; a read with no deadline is bounded by StorageTimeout,
+	// and one for a caller that is already gone is detached from its cancellation.
 	if !ignoreCache {
-		readCtx := ctx
-		if ctx.Err() != nil {
-			var cancel context.CancelFunc
-			readCtx, cancel = cache.storageContext(context.WithoutCancel(ctx))
-			defer cancel()
-		}
+		readCtx, cancel := cache.readContext(ctx)
 		result, _, hit, terr := tryCache[ResultType](readCtx, cache, key, config, paramStr)
+		cancel()
 		if terr != nil {
-			// the caller's context is done: return before starting a resolve
-			return zero, terr
-		}
-		if hit {
+			if ctx.Err() != nil {
+				// the caller's context is done: return before starting a resolve
+				return zero, terr
+			}
+			// the read's own bound fired, so this is a storage fault and not a
+			// caller leaving: resolve as if the cache were empty
+			cache.faults.readErrors.Add(1)
+			warning("storage timed out reading key=%q paramStr=%s: %s", key, shortParams(paramStr), terr)
+		} else if hit {
 			return result, nil
 		}
 	}

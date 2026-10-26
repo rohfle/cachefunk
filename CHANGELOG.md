@@ -6,17 +6,19 @@ terminology of that release.
 
 ## 0.6.0
 
-- Breaking: every `CacheStorage` method takes a `context.Context` first and
-  returns `ctx.Err()` (or an error wrapping it) once the call is cancelled.
-  Custom implementations must add the parameter; `storagetest.Run` checks the
-  contract, including cancellation
+- Breaking: every `CacheStorage` method takes a `context.Context` first. A call
+  cancelled before it starts, or one the backend can interrupt, returns
+  `ctx.Err()` (or an error wrapping it); a single file operation already under
+  way may finish and return nil. Custom implementations must add the parameter
+  and check it on entry; `storagetest.Run` checks the contract, including
+  cancellation
 - Breaking: `CacheFunk.Get`, `GetLazy`, `Set`, `EntryCount`, `ExpiredEntryCount`
   and `Clear` take a context, and `Cleanup` takes one and returns an error so a
   cancelled cleanup is visible rather than only warned about
-- Flight-scoped storage reads and writes are bounded by `CacheFunk.StorageTimeout`
-  (`DefaultStorageTimeout`, 5 seconds, by default), so a hung database cannot
-  block every waiter on a key. Cancelling that bound counts as a read or write
-  fault and the call still succeeds
+- Storage reads and writes are bounded by `CacheFunk.StorageTimeout`
+  (`DefaultStorageTimeout`, 5 seconds, by default): flight-scoped calls made on
+  everyone's behalf, and a caller's own read when its context has no deadline.
+  A timeout is a warning and a fault count, never a failed call
 - A caller that gives up stops waiting without cancelling the resolver or the
   write behind it; a caller that was already gone still receives a live cache hit
 - `Keys` and the count methods return zero values with `ctx.Err()` rather than
