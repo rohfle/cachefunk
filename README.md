@@ -101,6 +101,11 @@ cache := cachefunk.CacheFunk{
 Note that GORMStorage needs cgo for the SQLite driver. PostgreSQL and SQLite are tested dialects; other GORM databases
 are untested.
 
+Every storage method takes a `context.Context`. Implementations must honour it where the backend
+allows, return `ctx.Err()` or an error wrapping it when a call is cancelled, and never retain it.
+[`storagetest`](https://pkg.go.dev/github.com/rohfle/cachefunk/storagetest) runs the whole contract,
+cancellation included, against a supplied backend.
+
 ## API
 
 Each function takes the cache, a key and the params, and either returns a wrapped function or makes
@@ -178,6 +183,9 @@ Different params make separate calls.
 - **Context**: the resolver runs detached from the initiating caller's cancellation and deadline, so
   that caller giving up does not fail the rest. A caller that gives up gets its own context error, or
   the result if it is already available.
+- **Storage bounds**: reads and writes a flight makes on everyone's behalf are bounded by
+  `StorageTimeout` (5 seconds by default). A timeout is a warning and a fault count, never a failed
+  call.
 - **Cancelled before starting**: the call returns before starting a resolver call, but a live cache
   hit is still served.
 - **ignoreCache**: skips reading the cache and joins any resolver call already in flight. The result

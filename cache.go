@@ -396,7 +396,9 @@ func CacheWithIgnore[Params any, ResultType any](
 // waiting. The resolver runs detached from ctx's cancellation, so one caller
 // giving up does not fail the others sharing the retrieval. Each caller stops
 // waiting when its own ctx ends. A context marked by [SetIgnoreCacheInContext]
-// skips reading the cache.
+// skips reading the cache. The resolver and the flight's storage calls see ctx's
+// values but not its cancellation, and those storage calls are bounded by
+// [CacheFunk.StorageTimeout].
 func CacheWithContext[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,

@@ -4,6 +4,27 @@ Behaviour changes per release, newest first. The README describes current
 behaviour; an entry below describes the release that introduced a change, in the
 terminology of that release.
 
+## 0.6.0
+
+- Breaking: every `CacheStorage` method takes a `context.Context` first and
+  returns `ctx.Err()` (or an error wrapping it) once the call is cancelled.
+  Custom implementations must add the parameter; `storagetest.Run` checks the
+  contract, including cancellation
+- Breaking: `CacheFunk.Get`, `GetLazy`, `Set`, `EntryCount`, `ExpiredEntryCount`
+  and `Clear` take a context, and `Cleanup` takes one and returns an error so a
+  cancelled cleanup is visible rather than only warned about
+- Flight-scoped storage reads and writes are bounded by `CacheFunk.StorageTimeout`
+  (`DefaultStorageTimeout`, 5 seconds, by default), so a hung database cannot
+  block every waiter on a key. Cancelling that bound counts as a read or write
+  fault and the call still succeeds
+- A caller that gives up stops waiting without cancelling the resolver or the
+  write behind it; a caller that was already gone still receives a live cache hit
+- `Keys` and the count methods return zero values with `ctx.Err()` rather than
+  partial results, and `Cleanup` may leave its work partly done and says so in
+  the error
+- New `storagetest` package: `storagetest.Run(t, open)` exercises the whole
+  storage contract against a supplied backend
+
 ## 0.5.0
 
 - Upgrading from 0.4.x: the cache table used by the GORM storage must be dropped,
