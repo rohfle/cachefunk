@@ -1,9 +1,8 @@
 // Package storagetest checks that a [cachefunk.CacheStorage] implementation
 // honours the contract CacheFunk relies on.
 //
-// Backends should run it from their own tests, and so should third-party
-// implementations, since the contract is wide enough that a subtle violation
-// only shows up as a cache miss at runtime.
+// Run it from a backend's own tests. The contract is wide enough that a subtle
+// violation only shows up as a cache miss at runtime.
 package storagetest
 
 import (
@@ -16,9 +15,10 @@ import (
 	"github.com/rohfle/cachefunk"
 )
 
-// Run exercises storage, which open must return empty for each call along with a
-// cleanup function. It covers the round trip, expiry, compression mismatch,
-// keys, counts, cleanup, clearing and cancellation.
+// Run exercises storage against the CacheStorage contract. open must return an
+// empty storage for each call, plus a cleanup function, which may be nil. Run
+// covers the round trip, expiry, compression mismatch, keys, counts, cleanup and
+// clearing. A backend that ignores ctx fails the cancelled-context case.
 func Run(t *testing.T, open func(t *testing.T) (cachefunk.CacheStorage, func())) {
 	t.Helper()
 

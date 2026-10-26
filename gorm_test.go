@@ -93,9 +93,9 @@ func TestGORMStorageIndexes(t *testing.T) {
 	}
 }
 
-// TestGORMStorageParamsHash checks that params longer than a btree index entry
-// can hold are cached, and that the indexed column holds a sha256 of the params
-// the codec serialised.
+// TestGORMStorageParamsHash checks that params longer than a btree index entry can
+// hold are still cached. The indexed column must hold a sha256 of the serialised
+// params.
 func TestGORMStorageParamsHash(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:paramshash_test?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
@@ -137,10 +137,10 @@ func TestGORMStorageParamsHash(t *testing.T) {
 }
 
 // TestGORMStorageQuotesReservedColumns checks that column names reach the
-// database quoted. gorm passes raw fragments such as "key = ?" through
-// unquoted, and key is a reserved word in MySQL, which made every get, cleanup
-// and expired count a syntax error there. sqlite does not care, so the generated
-// SQL is what this test holds to.
+// database quoted. gorm passes raw fragments such as "key = ?" through unquoted,
+// and key is a reserved word in MySQL. Unquoted, every get, cleanup and expired
+// count was a syntax error there. sqlite does not care, so the generated SQL is
+// what this test holds to.
 func TestGORMStorageQuotesReservedColumns(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {

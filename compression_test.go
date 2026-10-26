@@ -8,8 +8,8 @@ import (
 )
 
 // failWriter fails once more than limit bytes have been written to it. Codecs
-// that buffer small payloads only report a failing destination during Close, so
-// this is how a write failure is made to happen at flush time.
+// that buffer small payloads only report a failing destination during Close. This
+// is how a write failure is made to happen at flush time.
 type failWriter struct {
 	written int
 	limit   int
@@ -44,10 +44,9 @@ func TestCompressionRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: Compress(%s) returned an error: %s", name, payloadName, err)
 			}
-			// a compression that frames its output must still produce a stored
-			// value for an empty payload, otherwise an empty cached value is
-			// indistinguishable from a missing entry (NoCompression stores it
-			// as-is, so it stays empty)
+			// a compression that frames its output must still store an empty
+			// payload. Otherwise an empty cached value is indistinguishable from a
+			// missing entry. NoCompression stores it as-is, so it stays empty.
 			if name != NoCompression.String() && len(compressed) == 0 {
 				t.Errorf("%s: Compress(%s) produced no bytes", name, payloadName)
 			}

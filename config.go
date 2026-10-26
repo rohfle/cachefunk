@@ -9,11 +9,11 @@ import (
 
 // Special TTL values
 
-// TTLEntryNeverExpires means that cached values will never expire
+// TTLEntryNeverExpires means that cached values never expire
 const TTLEntryNeverExpires = -1
 
-// TTLEntryImmediatelyExpires means that cached values immediately expire
-// All cache Sets will do nothing and all non-fallback Gets return no result
+// TTLEntryImmediatelyExpires means that cached values expire immediately: Set
+// stores nothing, and Get returns no result unless FallbackToExpired is set
 const TTLEntryImmediatelyExpires = 0
 
 // Date ranges keep timestamps compatible with file system and database backends.
@@ -51,15 +51,13 @@ var DefaultKeyConfig = &KeyConfig{
 	ParamCodec:        DefaultParamCodec,
 }
 
-// Config stores settings for different cached endpoints by key.
-// It is a map that can be loaded directly from a JSON file.
-// A nil Config is valid: every key then resolves to DefaultKeyConfig.
+// Config stores settings per cache key. It can be loaded directly from a JSON
+// file. A nil Config is valid: every key then resolves to DefaultKeyConfig.
 type Config map[string]*KeyConfig
 
-// Get returns the cache config given a key: first the key's own entry, then
-// if that does not exist the reserved DefaultKey entry. If DefaultKey entry
-// does not exist then the global DefaultKeyConfig will be returned.
-// A nil entry counts as unset, so this never returns a nil *KeyConfig.
+// Get returns the settings for a cache key: the key's own entry, else the
+// reserved DefaultKey entry, else the global DefaultKeyConfig. A nil entry counts
+// as unset, so Get never returns a nil *KeyConfig.
 func (c Config) Get(key string) *KeyConfig {
 	if value, exists := c[key]; exists && value != nil {
 		return value
@@ -75,7 +73,7 @@ func (c Config) Get(key string) *KeyConfig {
 type KeyConfig struct {
 	// TTL is the lifetime of an entry in seconds.
 	// A TTL of 0 expires the entry immediately.
-	// A negative TTL never expires (not until year 9999).
+	// A negative TTL never expires.
 	// Some useful TTL values:
 	// - 3600: one hour
 	// - 86400: one day
@@ -141,10 +139,10 @@ type keyConfigRaw struct {
 // timestamps stay in range.
 func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	if kc.TTL == TTLEntryImmediatelyExpires {
-		// expireBeforeTime will always be after timestamp therefore everything expires immediately
+		// the cutoff is after any timestamp, so everything is expired
 		return MaxDate
 	} else if kc.TTL <= TTLEntryNeverExpires || kc.TTL > TTLMax {
-		// expireBeforeTime will always be before timestamp therefore everything never expires
+		// the cutoff is before any timestamp, so nothing is expired
 		return MinDate
 	}
 
@@ -152,30 +150,29 @@ func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	if secondsAvailable <= kc.TTL {
 		return MinDate
 	}
-	// Jitter is taken care of at timestamp generation during cache set
+	// GetTimestamp applies the jitter when the entry is written
 	return now.Add(-1 * time.Duration(kc.TTL) * time.Second)
 }
 
 // maxJitterSeconds is the largest jitter in seconds that can be added to a
-// timestamp. Hard coded at one year
+// timestamp. Fixed at one year.
 const maxJitterSeconds = int64(365 * 24 * 60 * 60)
 
 // GetTimestamp returns the timestamp of an entry with TTLJitter applied
 func (kc *KeyConfig) GetTimestamp(now time.Time) time.Time {
 	if jitter := kc.GetTTLJitter(); jitter > 0 {
-		// a random value from 0 to jitter-1 seconds is added
-		// the effect is the timestamp will appear to be created
-		// up to jitter seconds into the future
+		// add 0 to jitter-1 seconds, so an entry appears written up to jitter
+		// seconds later
 		delay := rand.Int64N(jitter)
 		now = now.Add(time.Duration(delay) * time.Second)
 	}
 	return now
 }
 
-// GetTTLJitter returns the jitter that will be applied to a timestamp: TTLJitter
-// capped so it can never extend an entry's life past two times its TTL, and at
-// one year so that a large TTL cannot carry the timestamp out of range.
-// Entries that do not expire get no jitter.
+// GetTTLJitter returns the jitter applied to a timestamp: TTLJitter, capped at
+// the TTL and at one year. The TTL cap means an entry lives at most twice as
+// long. The year cap keeps a large TTL from carrying the timestamp out of range.
+// Entries that do not expire get none.
 func (kc *KeyConfig) GetTTLJitter() int64 {
 	if kc.TTLJitter <= 0 || kc.TTL <= 0 {
 		return 0
@@ -220,7 +217,7 @@ func (kc *KeyConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// these will be nil when unset, but this is dealt with elsewhere
+	// unset fields stay nil; the Get methods supply the defaults
 	bodyCodec := codecMap[aux.BodyCodec]
 	bodyCompression := compressionMap[aux.BodyCompression]
 	paramCodec := paramMap[aux.ParamCodec]

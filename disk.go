@@ -21,8 +21,8 @@ import (
 // A cache key must not be blank, begin with a dot or contain ".."; the methods
 // return an error for such a key.
 //
-// Reading or writing one file is not interruptible; the methods check ctx before
-// starting, and walks stop between entries.
+// A single file read or write cannot be interrupted. The methods check ctx
+// before starting, and directory walks stop between entries.
 type DiskStorage struct {
 	// BasePath is the root directory, with one folder per cache key beneath it.
 	BasePath string
@@ -179,8 +179,8 @@ func (c *DiskStorage) Set(ctx context.Context, key string, config *KeyConfig, pa
 	}
 	err = os.Rename(tmpName, path)
 	if os.IsNotExist(err) {
-		// A concurrent Cleanup may have removed directories after MkdirAll above
-		// so recreate them and retry the rename once
+		// Cleanup may have removed the directories since MkdirAll; recreate them
+		// and retry the rename once
 		if mkErr := os.MkdirAll(dirs, 0755); mkErr == nil {
 			err = os.Rename(tmpName, path)
 		}
@@ -241,7 +241,7 @@ func (c *DiskStorage) Cleanup(ctx context.Context, key string, config *KeyConfig
 		return fmt.Errorf("Cleanup: %w", err)
 	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		return nil // key doesn't exist therefore nothing to do
+		return nil // key has no entries, so nothing to do
 	}
 	// directories of entries that get removed, so they can be cleaned up
 	// after the walk (see pruneEmptyDirs)
@@ -274,9 +274,9 @@ func (c *DiskStorage) Cleanup(ctx context.Context, key string, config *KeyConfig
 	return nil
 }
 
-// pruneEmptyDirs removes empty directories in dirs, plus any ancestor that become
-// empty as a result. os.Remove fails when a directory holds entries, but this is
-// not an error. It just means the directory is still in use.
+// pruneEmptyDirs removes empty directories in dirs, plus any ancestor that becomes
+// empty as a result. os.Remove fails when a directory still holds entries; that is
+// not an error, the directory is still in use.
 func pruneEmptyDirs(dirs []string, stop string) {
 	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
 	sep := string(filepath.Separator)
@@ -316,7 +316,7 @@ func (c *DiskStorage) ExpiredEntryCount(ctx context.Context, key string, config 
 		return 0, fmt.Errorf("ExpiredEntryCount: %w", err)
 	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		return 0, nil // key doesn't exist therefore count is 0
+		return 0, nil // key has no entries, so the count is 0
 	}
 	c.iterateFiles(ctx, basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
@@ -363,7 +363,7 @@ func (c *DiskStorage) iterateFiles(ctx context.Context, basePath string, callbac
 	}
 }
 
-// dump prints out a sample hexdump of cached content for test debugging
+// dump prints a hexdump sample of cached content for test debugging
 func (c *DiskStorage) dump(n int64) {
 	var count int64
 	basePath := c.BasePath

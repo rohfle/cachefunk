@@ -24,8 +24,9 @@ type InMemoryStorageEntry struct {
 // [CacheFunk.Cleanup] periodically to bound memory use.
 //
 // An InMemoryStorage is safe for concurrent use by multiple goroutines. The zero
-// value is not usable: call [NewInMemoryStorage]. Operations never block, so ctx
-// is checked on entry for uniformity; cancelling cannot interrupt them.
+// value is not usable: call [NewInMemoryStorage]. Operations never block, so a
+// cancelled ctx cannot interrupt them. The methods check ctx on entry to meet
+// the interface.
 type InMemoryStorage struct {
 	store map[string]map[string]*InMemoryStorageEntry
 	mutex sync.RWMutex
@@ -54,16 +55,10 @@ func (c *InMemoryStorage) Get(ctx context.Context, key string, config *KeyConfig
 	}
 
 	if value.CompressionType != config.GetBodyCompression().String() {
-		// yes there is an entry but it has the wrong compression type
-		// so it is the same as not found
 		return nil, ErrEntryNotFound
 	}
 
-	// check if cached value has expired
 	if expireBeforeTime.After(value.Timestamp) {
-		// item has expired but DO NOT REMOVE THE ITEM
-		// if FallbackToExpired option set expired value
-		// will be used if the resolver fails
 		return value.Data, ErrEntryExpired
 	}
 
@@ -128,7 +123,7 @@ func (c *InMemoryStorage) Cleanup(ctx context.Context, key string, config *KeyCo
 	c.mutex.Lock()
 	for params, value := range c.store[key] {
 		if expireBeforeTime.After(value.Timestamp) {
-			// its safe to delete from maps during a range loop
+			// it is safe to delete from a map while ranging over it
 			delete(c.store[key], params)
 		}
 	}

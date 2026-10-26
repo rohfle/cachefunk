@@ -111,8 +111,8 @@ func TestCancelledWaiterReturnsWhileFlightRuns(t *testing.T) {
 }
 
 // TestDeadlineDuringReadIsNotAFault checks that a caller whose deadline expires
-// during a storage read gets its own context error, with no warning and no
-// fault count, and that no resolver runs for it.
+// during a storage read gets its own context error. No warning or fault count is
+// recorded, and no resolver runs for it.
 func TestDeadlineDuringReadIsNotAFault(t *testing.T) {
 	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
 	storage.onGet = func(ctx context.Context) error {
@@ -140,8 +140,8 @@ func TestDeadlineDuringReadIsNotAFault(t *testing.T) {
 	}
 }
 
-// TestCancelledCallerStillGetsHit pins the documented behaviour that a caller who
-// is already gone is still served from a live entry, without starting a resolver.
+// TestCancelledCallerStillGetsHit pins that a caller whose ctx is already
+// cancelled still gets a live hit, without starting a resolver.
 func TestCancelledCallerStillGetsHit(t *testing.T) {
 	cache := newProbeCache(NewInMemoryStorage())
 	config := cache.Config.Get("k")
@@ -197,8 +197,8 @@ func TestStorageTimeoutOnWrite(t *testing.T) {
 }
 
 // TestStorageTimeoutOnRead checks that a caller's own read is bounded when its
-// context has no deadline, is counted as a read fault, and does not fail the
-// call.
+// context has no deadline. A timeout is counted as a read fault and does not
+// fail the call.
 func TestStorageTimeoutOnRead(t *testing.T) {
 	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
 	var gets atomic.Int64
@@ -221,8 +221,8 @@ func TestStorageTimeoutOnRead(t *testing.T) {
 	}
 }
 
-// TestStorageTimeoutOnFlightRead checks that the flight's re-read is bounded, so
-// a storage that hangs after the fast-path miss does not block the waiters: the
+// TestStorageTimeoutOnFlightRead checks that the flight's re-read is bounded. A
+// storage that hangs after the fast-path miss must not block the waiters, so the
 // resolver still runs and the call succeeds.
 func TestStorageTimeoutOnFlightRead(t *testing.T) {
 	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
@@ -253,9 +253,8 @@ func TestStorageTimeoutOnFlightRead(t *testing.T) {
 	}
 }
 
-// TestReadContextBoundsCancelledCaller checks that a caller that is already gone
-// gets a detached read that stays bounded even when StorageTimeout disables
-// bounds everywhere else.
+// TestReadContextBoundsCancelledCaller checks that a cancelled caller's read
+// stays bounded even when a negative StorageTimeout disables bounds elsewhere.
 func TestReadContextBoundsCancelledCaller(t *testing.T) {
 	cache := newProbeCache(NewInMemoryStorage())
 	cache.StorageTimeout = -1
@@ -383,7 +382,7 @@ func TestFlightContextKeepsValuesDropsCancellation(t *testing.T) {
 }
 
 // cancelAfterCtx reports cancellation after a fixed number of Err calls, so a
-// test can interrupt a walk part way through without sleeping.
+// test can interrupt a walk partway through without sleeping.
 type cancelAfterCtx struct {
 	context.Context
 	remaining atomic.Int64

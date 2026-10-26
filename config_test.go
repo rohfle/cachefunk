@@ -66,9 +66,9 @@ func TestConfigDefaultKey(t *testing.T) {
 	}
 }
 
-// TestTTLJitterCap checks that jitter is capped at the TTL, so it cannot extend
-// an entry's life past two times its TTL, and at one year, so a TTL measured in
-// centuries cannot carry the timestamp out of range.
+// TestTTLJitterCap checks the two jitter caps. Jitter extends an entry's life by
+// at most its TTL. The year cap keeps a TTL in centuries from carrying the
+// timestamp out of range.
 func TestTTLJitterCap(t *testing.T) {
 	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
 	oneYear := time.Duration(maxJitterSeconds) * time.Second
@@ -110,10 +110,10 @@ func TestTTLJitterCap(t *testing.T) {
 	}
 }
 
-// TestGetExpireTimeTTLLimit checks the TTLMax policy: a TTL above the limit
-// never expires, and a TTL at the limit is still honoured. The second half also
-// pins the unit: TTLMax is in seconds to match TTL, so a nanosecond valued
-// constant would make every TTL look like "never expires".
+// TestGetExpireTimeTTLLimit checks the TTLMax policy: a TTL above the limit never
+// expires, and a TTL at the limit is honoured. The unit is pinned too: TTLMax is
+// in seconds, like TTL. A nanosecond constant would make every TTL look like
+// "never expires".
 func TestGetExpireTimeTTLLimit(t *testing.T) {
 	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
 
@@ -132,9 +132,9 @@ func TestGetExpireTimeTTLLimit(t *testing.T) {
 	}
 }
 
-// TestConfigNilEntry checks that a nil entry - what a null value in a JSON config
-// file unmarshals to - counts as unset rather than reaching the caller as a nil
-// *KeyConfig, which used to panic when a cached call read the config.
+// TestConfigNilEntry checks that a nil entry (a null value in a JSON config file)
+// counts as unset. It must not reach the caller as a nil *KeyConfig, which used to
+// panic when a cached call read the config.
 func TestConfigNilEntry(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

@@ -200,10 +200,9 @@ func TestBadCacheKeyPaths(t *testing.T) {
 }
 
 // TestDiskStorageCleanupPathEscape is a deterministic regression test: Cleanup
-// and ExpiredEntryCount must not touch files outside BasePath. They used to
-// join the bare key onto BasePath with no validation, so a Config key such as
-// "../sibling" made CacheFunk.Cleanup (which runs automatically for every
-// configured key) delete arbitrary files on disk.
+// and ExpiredEntryCount must not touch files outside BasePath. They used to join
+// the bare key onto BasePath with no validation. A Config key such as
+// "../sibling" then made CacheFunk.Cleanup delete arbitrary files on disk.
 func TestDiskStorageCleanupPathEscape(t *testing.T) {
 	parentDir := t.TempDir()
 	baseDir := filepath.Join(parentDir, "cache")
@@ -229,8 +228,8 @@ func TestDiskStorageCleanupPathEscape(t *testing.T) {
 
 	expireBeforeTime := time.Now().UTC()
 
-	// both keys are rejected by the key rule: a key may not contain ".."
-	// anywhere, which is what stops a key from climbing out of the cache root
+	// both keys are rejected by the key rule: ".." may not appear anywhere, so a
+	// key cannot climb out of the cache root
 	for _, key := range []string{"../sibling", "sub/../../sibling"} {
 		if err := storage.Cleanup(context.Background(), key, DefaultKeyConfig, expireBeforeTime); err == nil {
 			t.Errorf("expected Cleanup with key %q to be rejected, but got nil error", key)
@@ -277,14 +276,12 @@ func TestDiskStorageErrorChain(t *testing.T) {
 	}
 }
 
-// TestDiskStorageConcurrentSetGetNoTornReads is a probabilistic regression
-// test for atomic Set. It protects the invariant that a concurrent Get never
-// observes a partially written entry: before Set wrote to a dot-prefixed temp
-// file and renamed it into place, os.WriteFile truncated the target first, so
-// readers could see a short or empty file and return it with a nil error -
-// indistinguishable from a legitimate cached value. Timing dependent, so a
-// torn read is not guaranteed on every run, but a 1 MiB value rewritten a few
-// hundred times while four goroutines read makes it very likely.
+// TestDiskStorageConcurrentSetGetNoTornReads is a probabilistic regression test
+// for atomic Set: a concurrent Get must never observe a partially written entry.
+// Before Set wrote to a temp file and renamed it, os.WriteFile truncated the
+// target first. Readers could then return a short or empty value with a nil
+// error. A torn read is not guaranteed on every run. Rewriting a 1 MiB value a
+// few hundred times while four goroutines read makes it very likely.
 func TestDiskStorageConcurrentSetGetNoTornReads(t *testing.T) {
 	config := &KeyConfig{BodyCompression: NoCompression, BodyCodec: StringCodec}
 

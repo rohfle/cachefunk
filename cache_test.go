@@ -117,9 +117,9 @@ func (s *failingSetStorage) Cleanup(ctx context.Context, key string, config *Key
 	return nil
 }
 
-// TestCacheWriteFailureReturnsResult checks that a storage which cannot be written
-// to does not fail the call: the resolved value is returned uncached, and the next
-// call resolves again rather than reading a half written entry.
+// TestCacheWriteFailureReturnsResult checks that a storage which cannot be
+// written to does not fail the call. The value is returned uncached, and the
+// next call resolves again rather than reading a half written entry.
 func TestCacheWriteFailureReturnsResult(t *testing.T) {
 	cache := &CacheFunk{
 		Config:  Config{},
@@ -140,8 +140,8 @@ func TestCacheWriteFailureReturnsResult(t *testing.T) {
 	}
 }
 
-// TestFaultCounts checks that the failures a cache absorbs or reports are counted,
-// so a broken cache can be alerted on without depending on the warning log
+// TestFaultCounts checks that the failures a cache absorbs or reports are
+// counted, so a broken cache can be alerted on without the warning log
 func TestFaultCounts(t *testing.T) {
 	// a write that fails: the caller gets the value and the counter records it
 	cache := &CacheFunk{Config: Config{}, Storage: &failingSetStorage{setErr: errors.New("no space left on device")}}
@@ -188,9 +188,9 @@ func TestFaultCounts(t *testing.T) {
 	}
 }
 
-// TestCacheErrDoNotCache checks that a resolver can return a result that must
-// not be stored while the caller still receives that result, whether the
-// resolver returns ErrDoNotCache directly or wraps it with %w.
+// TestCacheErrDoNotCache checks that a result marked ErrDoNotCache reaches the
+// caller but is not stored. This holds whether the resolver returns the error
+// directly or wraps it with %w.
 func runTestCacheErrDoNotCache(t *testing.T, cache *CacheFunk) {
 	cache.Config = Config{
 		DefaultKey: {TTL: 60, TTLJitter: 0, BodyCodec: StringCodec, BodyCompression: NoCompression},
@@ -235,11 +235,10 @@ func runTestCacheErrDoNotCache(t *testing.T, cache *CacheFunk) {
 	}
 }
 
-// runTestCacheCompressedPayload covers caching a payload that is already
-// compressed on the wire (see the README section "Caching already-compressed
-// payloads"): StringCodec with NoCompression stores the bytes exactly as
-// received, and the content encoding is part of the params so that entries for
-// the different encodings cannot collide.
+// runTestCacheCompressedPayload covers a payload that is already compressed on
+// the wire. StringCodec with NoCompression stores the bytes as received, and the
+// content encoding is part of the params, so entries for different encodings
+// cannot collide.
 func runTestCacheCompressedPayload(t *testing.T, cache *CacheFunk) {
 	cache.Config = Config{
 		"upstream": {TTL: 3600, BodyCodec: StringCodec, BodyCompression: NoCompression},
@@ -530,7 +529,7 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireA
 
 	CacheTTL := WrapWithIgnore(cache, "hello_CacheTTL", helloRaw)
 
-	// Test TTL=1 no jitter
+	// TTL of 1 second, no jitter
 	firstValue, err := CacheTTL(false, nil)
 	if err != nil {
 		t.Fatal("unexpected error on first call to CacheTTL", err)
@@ -580,7 +579,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 
 	CacheTTL := WrapWithIgnore(cache, "hello_CacheTTL", helloRaw)
 
-	// Test TTL=1 no jitter
+	// TTL of 1 second, no jitter
 	firstValue, err := CacheTTL(false, nil)
 	if err != nil {
 		t.Fatal("unexpected error on first call to CacheTTL", err)
@@ -593,8 +592,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Fatal("expected 1 cache entries after CacheTTL() but got", count)
 	}
 
-	// Wait for entries to expire
-	// Check entries expireBeforeTime are after now
+	// the entry is fresh, so none are expired yet
 	count, err = cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 expired cache entries but got error", err)
@@ -603,9 +601,9 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Fatal("expected 0 expired cache entries but found", count)
 	}
 
-	// Expire entries so we don't have to wait
+	// expire the entry instead of waiting for the TTL
 	expireAllEntries()
-	// Call again, this time it will fail
+	// the resolver now fails, so the expired entry is returned
 	DisableWarnings()
 	secondValue, err := CacheTTL(false, nil)
 	EnableWarnings()
@@ -623,7 +621,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Fatalf("returned values from CacheTTL do not match: %q vs %q", firstValue, secondValue)
 	}
 
-	// When FallbackToExpired is set, Cleanup does not remove expired entries when cleanupExpired is false
+	// Cleanup keeps expired entries for FallbackToExpired keys unless forced
 	cache.Cleanup(context.Background(), false)
 	count, err = cache.EntryCount(context.Background())
 	if err != nil {
@@ -661,7 +659,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 
 	CacheTTL := WrapWithContext(cache, "hello_CacheTTL", helloRaw)
 
-	// Test TTL=1 no jitter
+	// TTL of 1 second, no jitter
 	firstValue, err := CacheTTL(context.TODO(), nil)
 	if err != nil {
 		t.Fatal("unexpected error on first call to CacheTTL", err)
@@ -674,8 +672,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 		t.Fatal("expected 1 cache entries after CacheTTL() but got", count)
 	}
 
-	// Wait for entries to expire
-	// Check entries expireBeforeTime are after now
+	// the entry is fresh, so none are expired yet
 	count, err = cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 expired cache entries but got error", err)
@@ -684,9 +681,9 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 		t.Fatal("expected 0 expired cache entries but found", count)
 	}
 
-	// Expire entries so we don't have to wait
+	// expire the entry instead of waiting for the TTL
 	expireAllEntries()
-	// Call again, this time it will fail
+	// the resolver now fails, so the expired entry is returned
 	DisableWarnings()
 	secondValue, err := CacheTTL(context.TODO(), nil)
 	EnableWarnings()
@@ -1022,7 +1019,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	// test compression with bad zstd value
+	// store a value that cannot be decompressed
 	keyConfig := cache.Config.Get("helloWorld2")
 	params := &HelloWorldParams{"Bob", 43}
 	paramsRendered, _ := keyConfig.GetParamCodec().Marshal(params)

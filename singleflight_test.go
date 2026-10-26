@@ -23,8 +23,8 @@ func waitFor(t *testing.T, what string, condition func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// singleflightConfig caches the given keys with a TTL long enough that the test
-// itself decides what is in the cache and what has to be retrieved
+// singleflightConfig caches the given keys with a long TTL, so the test decides
+// what is in the cache and what has to be retrieved
 func singleflightConfig(keys ...string) Config {
 	config := Config{}
 	for _, key := range keys {
@@ -35,7 +35,7 @@ func singleflightConfig(keys ...string) Config {
 
 // runTestSingleflightCoalesces checks that concurrent retrievals of the same key
 // and params reach the resolver once, whatever mix of cache-reading and
-// ignoreCache callers they are, and that different params is its own retrieval.
+// ignoreCache callers they are. Different params is its own retrieval.
 func runTestSingleflightCoalesces(t *testing.T, cache *CacheFunk) {
 	cache.Config = singleflightConfig("singleflight_Coalesce")
 
@@ -82,8 +82,8 @@ func runTestSingleflightCoalesces(t *testing.T, cache *CacheFunk) {
 
 	close(barrier)
 	// let the cache-reading callers reach the join while the retrieval is still
-	// in flight: joining it, rather than finding a finished one, is the behaviour
-	// under test
+	// in flight. Joining it, rather than finding a finished one, is what is under
+	// test.
 	waitFor(t, "all callers to reach the wrapped function", func() bool {
 		return entered.Load() == callers
 	})
@@ -126,8 +126,8 @@ func runTestSingleflightCoalesces(t *testing.T, cache *CacheFunk) {
 }
 
 // runTestSingleflightPanicIsReturnedAsError checks that a resolver panic does not
-// take the process down with it: the flight reports it as an error to every
-// caller waiting on it, and the next call resolves normally.
+// take the process down. The flight reports it as an error to every caller waiting
+// on it, and the next call resolves normally.
 func runTestSingleflightPanicIsReturnedAsError(t *testing.T, cache *CacheFunk) {
 	cache.Config = singleflightConfig("singleflight_Panic")
 
@@ -280,9 +280,9 @@ func runTestSingleflightCallerGivesUp(t *testing.T, cache *CacheFunk) {
 	}
 }
 
-// runTestSingleflightReentrantCall checks that a resolver which calls the cache
-// back with the context it was given, for the key+params it is resolving, gets
-// ErrReentrantCall instead of waiting on the flight it is part of.
+// runTestSingleflightReentrantCall checks the re-entrancy guard. A resolver that
+// calls the cache with the context it was given, for the key and params it is
+// resolving, gets ErrReentrantCall. This prevents waiting on its own flight.
 func runTestSingleflightReentrantCall(t *testing.T, cache *CacheFunk) {
 	cache.Config = singleflightConfig("singleflight_Reentrant")
 
@@ -308,9 +308,9 @@ func runTestSingleflightReentrantCall(t *testing.T, cache *CacheFunk) {
 	}
 }
 
-// runTestSingleflightNestedCalls checks that a resolver can still call the cache
-// with its own context for another key, or for the same key with different
-// params: only the key+params being resolved is re-entrant.
+// runTestSingleflightNestedCalls checks that a resolver can call the cache with
+// its own context for another key, or for the same key with different params.
+// Only the key and params being resolved is re-entrant.
 func runTestSingleflightNestedCalls(t *testing.T, cache *CacheFunk) {
 	cache.Config = singleflightConfig("singleflight_Outer", "singleflight_Inner")
 

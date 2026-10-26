@@ -9,9 +9,8 @@ import (
 	"time"
 )
 
-// warningLogger is read by every warning, so it is swapped atomically rather
-// than assigned: warnings are printed from many goroutines and
-// SetWarningLog/DisableWarnings/EnableWarnings can run at the same time.
+// warningLogger is an atomic pointer because warnings read it from many
+// goroutines while SetWarningLog and friends replace it.
 var warningLogger atomic.Pointer[log.Logger]
 
 // DefaultWarningInterval is how often the same warning is printed. A cache that
@@ -19,8 +18,7 @@ var warningLogger atomic.Pointer[log.Logger]
 // a full disk it adds load to the disk.
 const DefaultWarningInterval = time.Minute
 
-// warningInterval is the current interval in nanoseconds, zero to print every
-// warning
+// warningInterval holds the interval in nanoseconds; zero prints every warning
 var warningInterval atomic.Int64
 
 // warningLatches holds one latch per warning format string, so repeated warnings

@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 )
 
-// DiskStoragePather returns a path representing the key and params.
-// The path is broken down into an array of directories to help limit
-// file counts in folders when there are thousands of cache entries.
+// DiskStoragePather returns the entry path for params. The path is split into
+// directories to limit the file count in any one folder when there are thousands
+// of cache entries.
 type DiskStoragePather func(params string) []string
 
 // DefaultDiskStoragePather is [SHA256HexPather]. [NewDiskStorage] uses it when no
@@ -25,7 +25,7 @@ func SHA256HexPather(params string) []string {
 	return []string{hash[0:2], hash[2:4], hash[4:6], hash[6:]}
 }
 
-// SHA256Base64Pather is SHA256HexPather with a shorter name: two two-character
+// SHA256Base64Pather is SHA256HexPather with a shorter path: two two-character
 // directories and the base64 digest as the file name. The hash is not reversible
 // either way, only its spelling differs.
 func SHA256Base64Pather(params string) []string {

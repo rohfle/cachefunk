@@ -7,8 +7,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// Compression compresses cached values before storage. The Write and Read
-// variants stream a value instead of holding a second copy.
+// Compression compresses cached values before storage. CompressAndWrite and
+// ReadAndDecompress stream, so a value is not held in memory twice.
 type Compression interface {
 	// Compress returns the compressed form of input.
 	Compress(input []byte) ([]byte, error)
@@ -61,11 +61,11 @@ var (
 )
 
 func newZstdEncoder() *zstd.Encoder {
-	// WithZeroFrames means an empty payload compresses to a valid, non empty frame,
+	// WithZeroFrames means an empty payload compresses to a valid, non-empty frame,
 	// so an empty cached value is not confused with a missing entry.
 	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1), zstd.WithZeroFrames(true))
 	if err != nil {
-		// only fails if options are invalid above
+		// cannot fail: the options above are valid
 		panic(fmt.Errorf("failed to create zstd encoder: %w", err))
 	}
 	return encoder
@@ -74,7 +74,7 @@ func newZstdEncoder() *zstd.Encoder {
 func newZstdDecoder() *zstd.Decoder {
 	decoder, err := zstd.NewReader(nil)
 	if err != nil {
-		// only fails if options are invalid above
+		// cannot fail: the reader takes no options
 		panic(fmt.Errorf("failed to create zstd decoder: %w", err))
 	}
 	return decoder

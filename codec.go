@@ -6,14 +6,14 @@ import (
 	"slices"
 )
 
-// BodyCodec encodes and decodes cached values. A [KeyConfig] selects one by
-// String, which is also the name used in configuration JSON.
+// BodyCodec encodes and decodes cached values. A [KeyConfig] selects a body
+// codec by String.
 type BodyCodec interface {
 	// Marshal encodes a value for storage.
 	Marshal(v any) ([]byte, error)
 	// Unmarshal decodes data into v, which must be a pointer.
 	Unmarshal(data []byte, v any) error
-	// String is the name used to select the codec in configuration.
+	// String is the body codec's configuration name.
 	String() string
 }
 

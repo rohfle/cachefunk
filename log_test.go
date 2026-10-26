@@ -15,9 +15,9 @@ func TestLog(t *testing.T) {
 	SetWarningLog(log.New(os.Stdout, "WARNING: ", log.LstdFlags))
 }
 
-// TestWarningLatch checks that a repeated warning is printed once per interval with
-// the number suppressed, that a different warning is not suppressed by it, and that
-// a zero interval prints every warning.
+// TestWarningLatch checks that a repeated warning prints once per interval with
+// the number suppressed, and that a different warning is not suppressed by it. A
+// zero interval prints every warning.
 func TestWarningLatch(t *testing.T) {
 	var logged bytes.Buffer
 	SetWarningLog(log.New(&logged, "", 0))
@@ -73,7 +73,7 @@ func TestWarningLatch(t *testing.T) {
 		t.Errorf("expected the other warning to be printed, got %d lines: %q", got, logged.String())
 	}
 
-	// a zero interval prints every warning
+	// with no interval, every warning prints
 	SetWarningInterval(0)
 	warning(repeated, 6)
 	warning(repeated, 7)

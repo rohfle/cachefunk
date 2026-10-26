@@ -21,13 +21,12 @@ type GORMStorage struct {
 	DB *gorm.DB
 }
 
-// CacheEntry is the cache table.
-// (key, params_hash) is unique and serves Get and the upsert in Set
-// (key, timestamp) serves Cleanup and ExpiredEntryCount
+// CacheEntry is the cache table. (key, params_hash) is unique, so Get and the
+// upsert in Set use it. (key, timestamp) serves Cleanup and ExpiredEntryCount.
 //
-// ParamsHash holds a sha256 of Params used for indexing so a long params can't exceed
-// index entry limits and fail to store.
-// Params is kept for debugging and to confirm a match.
+// ParamsHash holds a sha256 of Params, used for indexing so long params cannot
+// exceed an index entry limit. Params is kept for debugging and to confirm a
+// match.
 type CacheEntry struct {
 	ID              int64     `json:"id" gorm:"primaryKey"`
 	Timestamp       time.Time `json:"timestamp" gorm:"not null;index:idx_key_timestamp,priority:2"`
@@ -38,9 +37,8 @@ type CacheEntry struct {
 	Data            []byte    `json:"data" gorm:"not null"`
 }
 
-// paramsHash is what the indexed params_hash column holds: a sha256 of the
-// serialised params, always 32 bytes, so no params value can exceed a btree key
-// limit.
+// paramsHash returns the sha256 of params that the indexed column holds. The
+// digest is always 32 bytes, so no params value can exceed a btree key limit.
 func paramsHash(params string) []byte {
 	sum := sha256.Sum256([]byte(params))
 	return sum[:]
@@ -72,7 +70,7 @@ func (c *GORMStorage) Get(ctx context.Context, key string, config *KeyConfig, pa
 
 	var cacheEntry CacheEntry
 
-	// map conditions and clause.Eq make gorm quote the column names: a raw
+	// map conditions and clause.Eq make gorm quote the column names. A raw
 	// "key = ?" fragment is passed through unquoted, and key is a reserved word
 	// in MySQL. The hash goes through clause.Eq because a []byte inside a map
 	// condition is expanded into an IN list of byte values, which never matches.
@@ -90,14 +88,12 @@ func (c *GORMStorage) Get(ctx context.Context, key string, config *KeyConfig, pa
 	}
 
 	if cacheEntry.CompressionType != config.GetBodyCompression().String() {
-		// yes there is an entry but it has the wrong compression type
-		// so it is the same as not found
 		return nil, ErrEntryNotFound
 	}
 
 	value := cacheEntry.Data
 
-	// if entry has expired, delete and return not found
+	// an expired entry is returned with ErrEntryExpired
 	if expireBeforeTime.After(cacheEntry.Timestamp) {
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value

@@ -7,14 +7,13 @@ import (
 )
 
 // ParamCodec serialises call parameters into the string that, together with the
-// key, identifies a cache entry. A [KeyConfig] selects one by String, which is
-// also the name used in configuration JSON.
+// key, identifies a cache entry. A [KeyConfig] selects a param codec by String.
 type ParamCodec interface {
 	// Marshal serialises v into the entry's params.
 	Marshal(v any) (string, error)
 	// Unmarshal deserialises data into v, which must be a pointer.
 	Unmarshal(data string, v any) error
-	// String is the name used to select the codec in configuration.
+	// String is the param codec's configuration name.
 	String() string
 }
 

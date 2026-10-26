@@ -8,9 +8,9 @@ terminology of that release.
 
 - Breaking: every `CacheStorage` method takes a `context.Context` first. A call
   cancelled before it starts, or one the backend can interrupt, returns
-  `ctx.Err()` (or an error wrapping it); a single file operation already under
-  way may finish and return nil. Custom implementations must add the parameter
-  and check it on entry; `storagetest.Run` checks the contract, including
+  `ctx.Err()` or an error wrapping it. A single file operation already under way
+  may finish and return nil. Custom implementations must add the parameter and
+  check it on entry. `storagetest.Run` checks the contract, including
   cancellation
 - Breaking: `CacheFunk.Get`, `GetLazy`, `Set`, `EntryCount`, `ExpiredEntryCount`
   and `Clear` take a context, and `Cleanup` takes one and returns an error so a
@@ -20,10 +20,10 @@ terminology of that release.
   everyone's behalf, and a caller's own read when its context has no deadline.
   A timeout is a warning and a fault count, never a failed call
 - A caller that gives up stops waiting without cancelling the resolver or the
-  write behind it; a caller that was already gone still receives a live cache hit
+  write behind it. A caller that was already gone still receives a live cache hit
 - `Keys` and the count methods return zero values with `ctx.Err()` rather than
-  partial results, and `Cleanup` may leave its work partly done and says so in
-  the error
+  partial results. `Cleanup` may leave its work partly done and says so in the
+  error
 - New `storagetest` package: `storagetest.Run(t, open)` exercises the whole
   storage contract against a supplied backend
 
@@ -43,7 +43,7 @@ terminology of that release.
   This is a schema change on top of the table drop above
 - Coalesce concurrent cache misses into one retrieve to prevent stampedes, with
   per caller context handling
-- Return ErrReentrantCall for nested calls for the same key+params. Otherwise the
+- Return ErrReentrantCall for nested calls for the same key and params. Otherwise the
   `singleflight` group will deadlock
 - Return resolver panics as errors to callers waiting on the `singleflight` group
 - A failed cache write no longer fails the call: the resolved value is returned
