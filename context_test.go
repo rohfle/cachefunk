@@ -173,6 +173,7 @@ func TestCancelledCallerStillGetsHit(t *testing.T) {
 // TestStorageTimeoutOnWrite checks that a hung write is abandoned after
 // StorageTimeout, counted as a write fault, and does not fail the call.
 func TestStorageTimeoutOnWrite(t *testing.T) {
+	quietWarnings(t)
 	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
 	storage.onSet = func(ctx context.Context) error {
 		<-ctx.Done()
@@ -200,6 +201,7 @@ func TestStorageTimeoutOnWrite(t *testing.T) {
 // context has no deadline. A timeout is counted as a read fault and does not
 // fail the call.
 func TestStorageTimeoutOnRead(t *testing.T) {
+	quietWarnings(t)
 	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
 	var gets atomic.Int64
 	storage.onGet = func(ctx context.Context) error {
@@ -225,6 +227,7 @@ func TestStorageTimeoutOnRead(t *testing.T) {
 // storage that hangs after the fast-path miss must not block the waiters, so the
 // resolver still runs and the call succeeds.
 func TestStorageTimeoutOnFlightRead(t *testing.T) {
+	quietWarnings(t)
 	storage := &probeStorage{InMemoryStorage: NewInMemoryStorage()}
 	var gets atomic.Int64
 	storage.onGet = func(ctx context.Context) error {

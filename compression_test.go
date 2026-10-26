@@ -100,9 +100,7 @@ func TestCompressionStreamingFlushError(t *testing.T) {
 		if err == nil {
 			t.Errorf("%s: CompressAndWrite reported success after writing only %d of %d bytes",
 				name, destination.written, len(payload))
-			continue
 		}
-		t.Logf("%s: correctly reported %v after %d bytes", name, err, destination.written)
 	}
 }
 

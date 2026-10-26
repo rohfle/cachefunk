@@ -105,6 +105,10 @@ func TestGORMStorageParamsHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while setting up gorm cache storage: %s", err)
 	}
+	// the shared in-memory database survives a repeated test run, so start clean
+	if err := storage.Clear(context.Background()); err != nil {
+		t.Fatalf("error while clearing gorm cache storage: %s", err)
+	}
 	cache := &CacheFunk{Config: Config{}, Storage: storage}
 
 	buf := make([]byte, 4096)

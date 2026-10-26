@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"log"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +11,25 @@ import (
 )
 
 func TestLog(t *testing.T) {
-	SetWarningLog(log.New(os.Stdout, "WARNING: ", log.LstdFlags))
+	var logged bytes.Buffer
+	SetWarningLog(log.New(&logged, "", 0))
+	SetWarningInterval(0)
+	t.Cleanup(func() {
+		EnableWarnings()
+		SetWarningInterval(DefaultWarningInterval)
+	})
+
+	warning("test warning %d", 1)
+	if !strings.Contains(logged.String(), "test warning 1") {
+		t.Errorf("expected the warning to reach the logger, got %q", logged.String())
+	}
+}
+
+// quietWarnings discards warnings for a test that provokes them on purpose.
+func quietWarnings(t *testing.T) {
+	t.Helper()
+	DisableWarnings()
+	t.Cleanup(EnableWarnings)
 }
 
 // TestWarningLatch checks that a repeated warning prints once per interval with
@@ -23,6 +40,8 @@ func TestWarningLatch(t *testing.T) {
 	SetWarningLog(log.New(&logged, "", 0))
 	SetWarningInterval(time.Hour)
 	t.Cleanup(func() {
+		warningLatches.Delete("latch test repeated warning %d")
+		warningLatches.Delete("latch test other warning %d")
 		EnableWarnings()
 		SetWarningInterval(DefaultWarningInterval)
 	})

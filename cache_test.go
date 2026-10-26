@@ -8,14 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 	"time"
 )
 
-// dumpStorage prints a sample of what a storage holds, for the tests that show
-// the cache when they fail. Dump is not part of CacheStorage, so the storages
-// that provide it are asserted below.
+// dumpStorage prints a sample of what a storage holds when CACHEFUNK_TEST_DUMP is
+// set, for debugging a failing storage test.
 func dumpStorage(storage CacheStorage, n int64) {
+	if os.Getenv("CACHEFUNK_TEST_DUMP") == "" {
+		return
+	}
 	if dumper, ok := storage.(interface{ dump(int64) }); ok {
 		dumper.dump(n)
 	}
@@ -121,6 +124,7 @@ func (s *failingSetStorage) Cleanup(ctx context.Context, key string, config *Key
 // written to does not fail the call. The value is returned uncached, and the
 // next call resolves again rather than reading a half written entry.
 func TestCacheWriteFailureReturnsResult(t *testing.T) {
+	quietWarnings(t)
 	cache := &CacheFunk{
 		Config:  Config{},
 		Storage: &failingSetStorage{setErr: errors.New("no space left on device")},
@@ -143,6 +147,7 @@ func TestCacheWriteFailureReturnsResult(t *testing.T) {
 // TestFaultCounts checks that the failures a cache absorbs or reports are
 // counted, so a broken cache can be alerted on without the warning log
 func TestFaultCounts(t *testing.T) {
+	quietWarnings(t)
 	// a write that fails: the caller gets the value and the counter records it
 	cache := &CacheFunk{Config: Config{}, Storage: &failingSetStorage{setErr: errors.New("no space left on device")}}
 	Fetch := Wrap(cache, "writeFailure", func(params string) (string, error) { return "value", nil })
