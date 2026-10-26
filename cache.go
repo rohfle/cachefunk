@@ -67,6 +67,11 @@ func SetIgnoreCacheInContext(ctx context.Context, value bool) context.Context {
 	return context.WithValue(ctx, ignoreCacheKey{}, value)
 }
 
+// DefaultStorageTimeout bounds a storage call made on behalf of a flight, which
+// is detached from any caller's deadline. Without a bound, a hung connection
+// blocks every waiter on that key.
+const DefaultStorageTimeout = 5 * time.Second
+
 // CacheFunk is a cache in front of a [CacheStorage]. It is safe for concurrent
 // use by multiple goroutines and must not be copied after first use.
 type CacheFunk struct {
@@ -75,6 +80,9 @@ type CacheFunk struct {
 	Config Config
 	// Storage stores the cached values. A nil Storage panics on first use.
 	Storage CacheStorage
+	// StorageTimeout bounds storage calls made on behalf of a flight. Zero uses
+	// DefaultStorageTimeout; a negative value leaves them unbounded.
+	StorageTimeout time.Duration
 
 	// flights collapses concurrent misses for the same key and params into
 	// one upstream call. The zero value is ready to use.
@@ -107,34 +115,42 @@ type FaultCounts struct {
 }
 
 // CacheStorage is where [CacheFunk] keeps entries. [InMemoryStorage],
-// [DiskStorage] and [GORMStorage] implement it. Implementations must be safe for
-// concurrent use by multiple goroutines.
+// [DiskStorage] and [GORMStorage] implement it.
+//
+// Implementations must be safe for concurrent use by multiple goroutines. They
+// must honour ctx where the backend allows, return ctx.Err() or an error
+// wrapping it once the call is cancelled, and must not retain ctx after
+// returning. A method that ignores ctx remains conformant but cannot be
+// interrupted.
 type CacheStorage interface {
 	// Get returns the entry stored for key and params. A missing entry returns
 	// ErrEntryNotFound. An expired entry returns ErrEntryExpired, along with the
 	// value when FallbackToExpired is set. An entry written with a different
 	// compression than the key's configured compression counts as missing.
-	Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) (value []byte, err error)
+	Get(ctx context.Context, key string, config *KeyConfig, params string, expireBeforeTime time.Time) (value []byte, err error)
 
 	// Set stores value for key and params, recording timestamp as the write time.
-	Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) (err error)
+	Set(ctx context.Context, key string, config *KeyConfig, params string, value []byte, timestamp time.Time) (err error)
 
-	// Keys returns the distinct cache keys that have entries.
-	Keys() (keys []string, err error)
+	// Keys returns the distinct cache keys that have entries. A cancelled call
+	// returns nil and ctx.Err(), never a partial slice.
+	Keys(ctx context.Context) (keys []string, err error)
 
-	// EntryCount returns the number of entries in the cache.
-	EntryCount() (count int64, err error)
+	// EntryCount returns the number of entries in the cache. A cancelled call
+	// returns zero and ctx.Err().
+	EntryCount(ctx context.Context) (count int64, err error)
 
 	// ExpiredEntryCount returns the number of entries under key whose timestamp is
-	// before expireBeforeTime.
-	ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (count int64, err error)
+	// before expireBeforeTime. A cancelled call returns zero and ctx.Err().
+	ExpiredEntryCount(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) (count int64, err error)
 
 	// Clear deletes every entry in the cache.
-	Clear() error
+	Clear(ctx context.Context) error
 
 	// Cleanup deletes the entries under key whose timestamp is before
-	// expireBeforeTime.
-	Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error
+	// expireBeforeTime. A cancelled call may leave the work partly done; it
+	// returns an error wrapping ctx.Err().
+	Cleanup(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) error
 }
 
 // GetLazy returns a decoder for the entry at key and params. A missing entry
@@ -239,6 +255,19 @@ func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 		count += chunk
 	}
 	return count, nil
+}
+
+// storageTimeout returns the bound for flight-scoped storage calls, or zero when
+// bounds are disabled. A zero StorageTimeout means DefaultStorageTimeout.
+func (c *CacheFunk) storageTimeout() time.Duration {
+	switch {
+	case c.StorageTimeout == 0:
+		return DefaultStorageTimeout
+	case c.StorageTimeout < 0:
+		return 0
+	default:
+		return c.StorageTimeout
+	}
 }
 
 // Clear removes every entry, across all keys.

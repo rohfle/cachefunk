@@ -1,6 +1,7 @@
 package cachefunk
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,6 +20,9 @@ import (
 //
 // A cache key must not be blank, begin with a dot or contain ".."; the methods
 // return an error for such a key.
+//
+// Reading or writing one file is not interruptible; the methods check ctx before
+// starting, and walks stop between entries.
 type DiskStorage struct {
 	// BasePath is the root directory, with one folder per cache key beneath it.
 	BasePath string
@@ -98,7 +102,10 @@ func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, param
 // Get reads the entry file, whose modification time is the timestamp. An expired
 // entry is read only when FallbackToExpired is set; it stays in place for
 // [DiskStorage.Cleanup] either way.
-func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+func (c *DiskStorage) Get(ctx context.Context, key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	path, err := c.getCacheItemPath(key, config, params)
 	if err != nil {
 		return nil, fmt.Errorf("cache.Get: %w", err)
@@ -136,7 +143,10 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBe
 // Set replaces the entry atomically: a concurrent reader sees the old value or
 // the new one, never a partial write. The timestamp becomes the file's
 // modification time.
-func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+func (c *DiskStorage) Set(ctx context.Context, key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	path, err := c.getCacheItemPath(key, config, params)
 	if err != nil {
 		return fmt.Errorf("cache.Set: %w", err)
@@ -183,7 +193,10 @@ func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []
 
 // Keys returns distinct cache keys that have entries.
 // In DiskStorage, each cache key is a directory inside BasePath.
-func (c *DiskStorage) Keys() ([]string, error) {
+func (c *DiskStorage) Keys(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(c.BasePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -202,7 +215,10 @@ func (c *DiskStorage) Keys() ([]string, error) {
 
 // Clear removes BasePath and recreates it, so anything else kept under the cache
 // directory is removed too.
-func (c *DiskStorage) Clear() error {
+func (c *DiskStorage) Clear(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	err := os.RemoveAll(c.BasePath)
 	if err != nil {
 		return fmt.Errorf("failed to clear cache %q: when removing files: %w", c.BasePath, err)
@@ -216,7 +232,10 @@ func (c *DiskStorage) Clear() error {
 
 // Cleanup deletes the expired entry files under one key, then removes the
 // directories they left empty.
-func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
+func (c *DiskStorage) Cleanup(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	basePath, err := c.keyPath(key)
 	if err != nil {
 		return fmt.Errorf("Cleanup: %w", err)
@@ -227,7 +246,8 @@ func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 	// directories of entries that get removed, so they can be cleaned up
 	// after the walk (see pruneEmptyDirs)
 	var emptied []string
-	c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
+	var removed int
+	c.iterateFiles(ctx, basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
 		info, err := file.Info()
 		if err != nil {
@@ -241,12 +261,16 @@ func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 				warning("skipping %q: file cleanup failed: %v", path, err)
 				return
 			}
+			removed++
 			emptied = append(emptied, parent)
 		}
 	})
 	// removing files can leave a chain of empty directories behind, one per
 	// entry, so remove them after the walk is finished
 	pruneEmptyDirs(emptied, c.BasePath)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cleanup cancelled after removing %d entries: %w", removed, err)
+	}
 	return nil
 }
 
@@ -267,16 +291,25 @@ func pruneEmptyDirs(dirs []string, stop string) {
 }
 
 // EntryCount returns the number of files beneath BasePath.
-func (c *DiskStorage) EntryCount() (int64, error) {
+func (c *DiskStorage) EntryCount(ctx context.Context) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	var count int64
-	c.iterateFiles(c.BasePath, func(parent string, file fs.DirEntry) {
+	c.iterateFiles(ctx, c.BasePath, func(parent string, file fs.DirEntry) {
 		count += 1
 	})
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return count, nil
 }
 
 // ExpiredEntryCount returns the number of expired entry files under one key.
-func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+func (c *DiskStorage) ExpiredEntryCount(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	var count int64
 	basePath, err := c.keyPath(key)
 	if err != nil {
@@ -285,7 +318,7 @@ func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBef
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return 0, nil // key doesn't exist therefore count is 0
 	}
-	c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
+	c.iterateFiles(ctx, basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
 		info, err := file.Info()
 		if err != nil {
@@ -297,13 +330,19 @@ func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBef
 			count += 1
 		}
 	})
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return count, nil
 }
 
-func (c *DiskStorage) iterateFiles(basePath string, callback func(string, fs.DirEntry)) {
+func (c *DiskStorage) iterateFiles(ctx context.Context, basePath string, callback func(string, fs.DirEntry)) {
 	dirsLeft := []string{basePath}
 	var curDir string
 	for len(dirsLeft) > 0 {
+		if ctx.Err() != nil {
+			return
+		}
 		curDir, dirsLeft = dirsLeft[0], dirsLeft[1:]
 		entries, err := os.ReadDir(curDir)
 		if err != nil {
@@ -312,6 +351,9 @@ func (c *DiskStorage) iterateFiles(basePath string, callback func(string, fs.Dir
 		}
 
 		for _, entry := range entries {
+			if ctx.Err() != nil {
+				return
+			}
 			if entry.IsDir() {
 				dirsLeft = append(dirsLeft, filepath.Join(curDir, entry.Name()))
 			} else {
@@ -326,7 +368,7 @@ func (c *DiskStorage) dump(n int64) {
 	var count int64
 	basePath := c.BasePath
 	if _, err := os.Stat(basePath); !os.IsNotExist(err) {
-		c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
+		c.iterateFiles(context.Background(), basePath, func(parent string, file fs.DirEntry) {
 			if count == n {
 				fmt.Println("...")
 			}

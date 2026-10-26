@@ -1,6 +1,7 @@
 package cachefunk
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -64,7 +65,11 @@ func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
 	return &cache, nil
 }
 
-func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+func (c *GORMStorage) Get(ctx context.Context, key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	var cacheEntry CacheEntry
 
 	// map conditions and clause.Eq make gorm quote the column names: a raw
@@ -73,7 +78,7 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBe
 	// condition is expanded into an IN list of byte values, which never matches.
 	// params is compared as well, so a hash collision cannot return another
 	// entry's value
-	result := c.DB.
+	result := c.DB.WithContext(ctx).
 		Where(map[string]any{"key": key, "params": params}).
 		Where(clause.Eq{Column: clause.Column{Name: "params_hash"}, Value: paramsHash(params)}).
 		First(&cacheEntry)
@@ -103,7 +108,11 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBe
 }
 
 // Set replaces any existing entry for the same key and params.
-func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+func (c *GORMStorage) Set(ctx context.Context, key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	cacheEntry := CacheEntry{
 		Key:             key,
 		Params:          params,
@@ -113,7 +122,7 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 		CompressionType: config.GetBodyCompression().String(),
 	}
 
-	result := c.DB.Clauses(clause.OnConflict{
+	result := c.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}, {Name: "params_hash"}},
 		DoUpdates: clause.AssignmentColumns([]string{"params", "data", "timestamp", "compression_type"}),
 	}).Create(&cacheEntry)
@@ -124,11 +133,15 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 	return nil
 }
 
-func (c *GORMStorage) Keys() ([]string, error) {
+func (c *GORMStorage) Keys(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	var keys []string
 	// Distinct and Pluck build quoted column references, unlike a raw SQL
 	// string, so this works on dialects where key is a reserved word
-	result := c.DB.Model(&CacheEntry{}).Distinct().Pluck("key", &keys)
+	result := c.DB.WithContext(ctx).Model(&CacheEntry{}).Distinct().Pluck("key", &keys)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -136,9 +149,12 @@ func (c *GORMStorage) Keys() ([]string, error) {
 }
 
 // Clear deletes every row in the cache table.
-func (c *GORMStorage) Clear() error {
+func (c *GORMStorage) Clear(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// gorm refuses a delete that has no conditions, and "1 = 1" is the condition
-	result := c.DB.Where("1 = 1").Delete(&CacheEntry{})
+	result := c.DB.WithContext(ctx).Where("1 = 1").Delete(&CacheEntry{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -146,8 +162,11 @@ func (c *GORMStorage) Clear() error {
 }
 
 // Cleanup deletes the expired entries stored under one key.
-func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
-	result := c.DB.
+func (c *GORMStorage) Cleanup(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result := c.DB.WithContext(ctx).
 		Where(map[string]any{"key": key}).
 		Where(clause.Lt{Column: clause.Column{Name: "timestamp"}, Value: expireBeforeTime}).
 		Delete(&CacheEntry{})
@@ -158,18 +177,24 @@ func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 }
 
 // EntryCount returns the number of rows in the cache table.
-func (c *GORMStorage) EntryCount() (int64, error) {
+func (c *GORMStorage) EntryCount(ctx context.Context) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	var count int64
-	result := c.DB.Model(&CacheEntry{}).Count(&count)
+	result := c.DB.WithContext(ctx).Model(&CacheEntry{}).Count(&count)
 	if result.Error != nil {
 		return 0, result.Error
 	}
 	return count, nil
 }
 
-func (c *GORMStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+func (c *GORMStorage) ExpiredEntryCount(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	var count int64
-	result := c.DB.Model(&CacheEntry{}).
+	result := c.DB.WithContext(ctx).Model(&CacheEntry{}).
 		Where(map[string]any{"key": key}).
 		Where(clause.Lt{Column: clause.Column{Name: "timestamp"}, Value: expireBeforeTime}).
 		Count(&count)

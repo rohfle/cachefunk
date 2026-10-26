@@ -1,6 +1,7 @@
 package cachefunk
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sync"
@@ -23,7 +24,8 @@ type InMemoryStorageEntry struct {
 // [CacheFunk.Cleanup] periodically to bound memory use.
 //
 // An InMemoryStorage is safe for concurrent use by multiple goroutines. The zero
-// value is not usable: call [NewInMemoryStorage].
+// value is not usable: call [NewInMemoryStorage]. Operations never block, so ctx
+// is checked on entry for uniformity; cancelling cannot interrupt them.
 type InMemoryStorage struct {
 	store map[string]map[string]*InMemoryStorageEntry
 	mutex sync.RWMutex
@@ -39,7 +41,11 @@ func NewInMemoryStorage() *InMemoryStorage {
 
 // Get returns the entry for params under key. An expired entry is left in the
 // map so FallbackToExpired can use it.
-func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+func (c *InMemoryStorage) Get(ctx context.Context, key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	c.mutex.RLock()
 	value, found := c.store[key][params]
 	c.mutex.RUnlock()
@@ -65,7 +71,11 @@ func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expi
 }
 
 // Set stores value under key and params, replacing any earlier entry.
-func (c *InMemoryStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+func (c *InMemoryStorage) Set(ctx context.Context, key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	entry := &InMemoryStorageEntry{
 		Data:            value,
 		Timestamp:       timestamp,
@@ -83,7 +93,11 @@ func (c *InMemoryStorage) Set(key string, config *KeyConfig, params string, valu
 	return nil
 }
 
-func (c *InMemoryStorage) Keys() ([]string, error) {
+func (c *InMemoryStorage) Keys(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	c.mutex.RLock()
 	keys := make([]string, 0, len(c.store))
 	for key := range c.store {
@@ -93,7 +107,11 @@ func (c *InMemoryStorage) Keys() ([]string, error) {
 	return keys, nil
 }
 
-func (c *InMemoryStorage) Clear() error {
+func (c *InMemoryStorage) Clear(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	c.mutex.Lock()
 	c.store = make(map[string]map[string]*InMemoryStorageEntry)
 	c.mutex.Unlock()
@@ -102,7 +120,11 @@ func (c *InMemoryStorage) Clear() error {
 
 // Cleanup deletes the expired entries stored under one key, and the key itself
 // once no entries remain.
-func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
+func (c *InMemoryStorage) Cleanup(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	c.mutex.Lock()
 	for params, value := range c.store[key] {
 		if expireBeforeTime.After(value.Timestamp) {
@@ -117,7 +139,11 @@ func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireBeforeTim
 	return nil
 }
 
-func (c *InMemoryStorage) EntryCount() (int64, error) {
+func (c *InMemoryStorage) EntryCount(ctx context.Context) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
 	var count int64
 	c.mutex.RLock()
 	for _, paramsMap := range c.store {
@@ -127,7 +153,11 @@ func (c *InMemoryStorage) EntryCount() (int64, error) {
 	return count, nil
 }
 
-func (c *InMemoryStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+func (c *InMemoryStorage) ExpiredEntryCount(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
 	var count int64 = 0
 	c.mutex.RLock()
 	for _, value := range c.store[key] {
