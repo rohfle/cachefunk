@@ -36,6 +36,7 @@ must be encodable by the configured codec; the default is JSON.
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rohfle/cachefunk"
@@ -66,7 +67,7 @@ func main() {
 	value, err = HelloWorld(false, &HelloWorldParams{Name: "bob"})
 	fmt.Println("Second call:", value, err)
 
-	count, _ := cache.EntryCount()
+	count, _ := cache.EntryCount(context.Background())
 	fmt.Println("Entries:", count)
 }
 ```
@@ -114,9 +115,10 @@ one call.
 | `CacheWithIgnore` | `(Result, error)` | A single call that passes `ignoreCache` |
 | `CacheWithContext` | `(Result, error)` | A single call that passes a context |
 
-`CacheFunk` also has `Get`, `GetLazy` and `Set` for managing entries directly, `EntryCount`,
-`ExpiredEntryCount`, `Cleanup` and `Clear`, and `FaultCounts` for failures the cache absorbed. See
-the [package documentation](https://pkg.go.dev/github.com/rohfle/cachefunk) for every exported name.
+`CacheFunk` also has `Get`, `GetLazy` and `Set` (each taking a `context.Context`) for managing
+entries directly, `EntryCount`, `ExpiredEntryCount`, `Cleanup` and `Clear`, and `FaultCounts` for
+failures the cache absorbed. See the [package documentation](https://pkg.go.dev/github.com/rohfle/cachefunk)
+for every exported name.
 
 ## Config
 
@@ -164,7 +166,7 @@ The params themselves are still stored to confirm a match and for debugging purp
 `Config` (see `CacheStorage.Keys`). A key with no entry of its own falls back to `DefaultKey` or
 `DefaultKeyConfig`, so its entries are counted and cleaned up like the rest.
 
-`Cleanup(forceCleanupExpired)` skips keys that never expire. It also skips keys with
+`Cleanup(ctx, forceCleanupExpired)` skips keys that never expire. It also skips keys with
 `fallback_to_expired` set, because their expired entries can still answer a failed retrieve, unless
 `forceCleanupExpired` is true.
 

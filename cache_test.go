@@ -51,7 +51,7 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Fatalf("expected \"unlisted value\" but got %q", value)
 	}
 
-	keys, err := cache.Storage.Keys()
+	keys, err := cache.Storage.Keys(context.Background())
 	if err != nil {
 		t.Fatalf("error while fetching cache keys: %s", err)
 	}
@@ -62,7 +62,7 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 	// expiry is applied out of band so the test does not have to wait for it
 	expireAllEntries()
 
-	expired, err := cache.ExpiredEntryCount()
+	expired, err := cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatalf("error while fetching expired entry count: %s", err)
 	}
@@ -70,9 +70,9 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Errorf("expected the unlisted key to be counted as expired but got %d", expired)
 	}
 
-	cache.Cleanup(true)
+	cache.Cleanup(context.Background(), true)
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatalf("expected 0 entries after cleanup but got error %s", err)
 	}
@@ -80,7 +80,7 @@ func runTestCleanupUnconfiguredKey(t *testing.T, cache *CacheFunk, expireAllEntr
 		t.Errorf("expected cleanup to remove the unlisted key's entry but %d entries remain", count)
 	}
 
-	keys, err = cache.Storage.Keys()
+	keys, err = cache.Storage.Keys(context.Background())
 	if err != nil {
 		t.Fatalf("error while fetching cache keys: %s", err)
 	}
@@ -96,24 +96,24 @@ type failingSetStorage struct {
 	setErr error
 }
 
-func (s *failingSetStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
+func (s *failingSetStorage) Get(ctx context.Context, key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
 	return nil, ErrEntryNotFound
 }
-func (s *failingSetStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
+func (s *failingSetStorage) Set(ctx context.Context, key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
 	return s.setErr
 }
-func (s *failingSetStorage) Keys() ([]string, error) { return nil, nil }
-func (s *failingSetStorage) EntryCount() (int64, error) {
+func (s *failingSetStorage) Keys(ctx context.Context) ([]string, error) { return nil, nil }
+func (s *failingSetStorage) EntryCount(ctx context.Context) (int64, error) {
 	return 0, nil
 }
-func (s *failingSetStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
+func (s *failingSetStorage) ExpiredEntryCount(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	return 0, nil
 }
-func (s *failingSetStorage) Clear() error { return nil }
-func (s *failingSetStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
+func (s *failingSetStorage) Clear(ctx context.Context) error { return nil }
+func (s *failingSetStorage) Cleanup(ctx context.Context, key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	return nil
 }
 
@@ -175,7 +175,7 @@ func TestFaultCounts(t *testing.T) {
 
 	// an entry that cannot be decoded: the resolver covers for it
 	storage := NewInMemoryStorage()
-	if err := storage.Set("undecodable", DefaultKeyConfig, `"p"`, []byte("not a zstd frame"), time.Now().UTC()); err != nil {
+	if err := storage.Set(context.Background(), "undecodable", DefaultKeyConfig, `"p"`, []byte("not a zstd frame"), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	cache = &CacheFunk{Config: Config{}, Storage: storage}
@@ -226,7 +226,7 @@ func runTestCacheErrDoNotCache(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatalf("error while fetching entry count: %s", err)
 	}
@@ -305,7 +305,7 @@ func runTestCacheCompressedPayload(t *testing.T, cache *CacheFunk) {
 	if _, err := Fetch(false, &Params{URL: "/api/thing", Encoding: "identity"}); err != nil {
 		t.Fatalf("unexpected error while caching a second encoding: %s", err)
 	}
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatalf("expected 2 entries but got error %s", err)
 	}
@@ -457,14 +457,14 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 	}
 	for line, tc := range testCases {
 
-		cache.Clear()
+		cache.Clear(context.Background())
 		callCount = 0
 		tc.fn(false, nil)
 		if callCount != tc.firstCallCount {
 			t.Errorf("line %d: expected %d callCount after first call to %s but got %d", line+1, tc.firstCallCount, tc.key, callCount)
 		}
 
-		count, err := cache.EntryCount()
+		count, err := cache.EntryCount(context.Background())
 		if err != nil {
 			t.Fatalf("line %d: expected %d entries after first call to %s but got error %s", line+1, tc.firstEntryCount, tc.key, err)
 		}
@@ -472,7 +472,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 			t.Errorf("line %d: expected %d entries after first call to %s but got %d", line+1, tc.firstEntryCount, tc.key, count)
 		}
 
-		count, err = cache.ExpiredEntryCount()
+		count, err = cache.ExpiredEntryCount(context.Background())
 		if err != nil {
 			t.Fatalf("line %d: expected %d expired entries after first call to %s but got error %s", line+1, tc.firstEntryExpiredCount, tc.key, err)
 		}
@@ -492,7 +492,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 			t.Errorf("line %d: expected %d callCount after second call to %s but got %d", line+1, tc.secondCallCount, tc.key, callCount)
 		}
 
-		count, err = cache.EntryCount()
+		count, err = cache.EntryCount(context.Background())
 		if err != nil {
 			t.Fatalf("line %d: expected %d entries after second call to %s but got error %s", line+1, tc.secondEntryCount, tc.key, err)
 		}
@@ -500,7 +500,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 			t.Errorf("line %d: expected %d entries after second call to %s but got %d", line+1, tc.secondEntryCount, tc.key, count)
 		}
 
-		count, err = cache.ExpiredEntryCount()
+		count, err = cache.ExpiredEntryCount(context.Background())
 		if err != nil {
 			t.Fatalf("line %d: expected %d expired entries after second call to %s but got error %s", line+1, tc.secondEntryExpiredCount, tc.key, err)
 		}
@@ -508,7 +508,7 @@ func runTestCacheFuncTTL(t *testing.T, cache *CacheFunk, expireAllEntries func()
 			t.Errorf("line %d: expected %d expired entries after second call to %s but got %d", line+1, tc.secondEntryExpiredCount, tc.key, count)
 		}
 
-		cache.Cleanup(true)
+		cache.Cleanup(context.Background(), true)
 
 		if t.Failed() {
 			return
@@ -536,7 +536,7 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireA
 		t.Fatal("unexpected error on first call to CacheTTL", err)
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 1 cache entries after CacheTTL() but got error", err)
 	}
@@ -560,7 +560,7 @@ func runTestCacheMismatchCompressionType(t *testing.T, cache *CacheFunk, expireA
 	if firstValue != secondValue {
 		t.Fatalf("returned values from CacheTTL do not match: %q vs %q", firstValue, secondValue)
 	}
-	cache.Clear()
+	cache.Clear(context.Background())
 }
 
 func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntries func()) {
@@ -585,7 +585,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 	if err != nil {
 		t.Fatal("unexpected error on first call to CacheTTL", err)
 	}
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 1 cache entries after CacheTTL() but got error", err)
 	}
@@ -595,7 +595,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 
 	// Wait for entries to expire
 	// Check entries expireBeforeTime are after now
-	count, err = cache.ExpiredEntryCount()
+	count, err = cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 expired cache entries but got error", err)
 	}
@@ -612,7 +612,7 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 	if err != nil {
 		t.Fatal("unexpected error on second call to CacheTTL:", err)
 	}
-	count, err = cache.ExpiredEntryCount()
+	count, err = cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 1 expired cache entries but got error", err)
 	}
@@ -624,23 +624,23 @@ func runTestCacheFallBackToExpired(t *testing.T, cache *CacheFunk, expireAllEntr
 	}
 
 	// When FallbackToExpired is set, Cleanup does not remove expired entries when cleanupExpired is false
-	cache.Cleanup(false)
-	count, err = cache.EntryCount()
+	cache.Cleanup(context.Background(), false)
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
-		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got error", err)
+		t.Fatal("expected 1 cache entries after cache.Cleanup(context.Background(), false) but got error", err)
 	}
 	if count != 1 {
-		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got", count)
+		t.Fatal("expected 1 cache entries after cache.Cleanup(context.Background(), false) but got", count)
 	}
 
 	// Force cleanup of expired entries
-	cache.Cleanup(true)
-	count, err = cache.EntryCount()
+	cache.Cleanup(context.Background(), true)
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
-		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got error", err)
+		t.Fatal("expected 0 cache entries after cache.Cleanup(context.Background(), true) but got error", err)
 	}
 	if count != 0 {
-		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got", count)
+		t.Fatal("expected 0 cache entries after cache.Cleanup(context.Background(), true) but got", count)
 	}
 }
 
@@ -666,7 +666,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 	if err != nil {
 		t.Fatal("unexpected error on first call to CacheTTL", err)
 	}
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 1 cache entries after CacheTTL() but got error", err)
 	}
@@ -676,7 +676,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 
 	// Wait for entries to expire
 	// Check entries expireBeforeTime are after now
-	count, err = cache.ExpiredEntryCount()
+	count, err = cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 expired cache entries but got error", err)
 	}
@@ -693,7 +693,7 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 	if err != nil {
 		t.Fatal("unexpected error on second call to CacheTTL:", err)
 	}
-	count, err = cache.ExpiredEntryCount()
+	count, err = cache.ExpiredEntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 1 expired cache entries but got error", err)
 	}
@@ -704,22 +704,22 @@ func runTestCacheFallBackToExpiredWithContext(t *testing.T, cache *CacheFunk, ex
 		t.Fatalf("returned values from CacheTTL do not match: %q vs %q", firstValue, secondValue)
 	}
 
-	cache.Cleanup(false)
-	count, err = cache.EntryCount()
+	cache.Cleanup(context.Background(), false)
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
-		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got error", err)
+		t.Fatal("expected 1 cache entries after cache.Cleanup(context.Background(), false) but got error", err)
 	}
 	if count != 1 {
-		t.Fatal("expected 1 cache entries after cache.Cleanup(false) but got", count)
+		t.Fatal("expected 1 cache entries after cache.Cleanup(context.Background(), false) but got", count)
 	}
 
-	cache.Cleanup(true)
-	count, err = cache.EntryCount()
+	cache.Cleanup(context.Background(), true)
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
-		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got error", err)
+		t.Fatal("expected 0 cache entries after cache.Cleanup(context.Background(), true) but got error", err)
 	}
 	if count != 0 {
-		t.Fatal("expected 0 cache entries after cache.Cleanup(true) but got", count)
+		t.Fatal("expected 0 cache entries after cache.Cleanup(context.Background(), true) but got", count)
 	}
 }
 
@@ -738,7 +738,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
 		t.Fatal("expected an error but got nil")
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cache entries but got error", err)
 	}
@@ -752,7 +752,7 @@ func runTestCacheFuncErrorsReturned(t *testing.T, cache *CacheFunk) {
 		t.Fatal("expected an error but got nil")
 	}
 
-	count, err = cache.EntryCount()
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cache entries but got error", err)
 	}
@@ -776,7 +776,7 @@ func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *CacheFunk) {
 		t.Fatal("expected an error but got nil")
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cache entries but got error", err)
 	}
@@ -790,7 +790,7 @@ func runTestCacheFuncWithContextErrorsReturned(t *testing.T, cache *CacheFunk) {
 		t.Fatal("expected an error but got nil")
 	}
 
-	count, err = cache.EntryCount()
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cache entries but got error", err)
 	}
@@ -976,7 +976,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 3 cached values got error", err)
 	}
@@ -1031,7 +1031,7 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		Params: nil,
 	}
 	raw, _ := json.Marshal(doctoredResult)
-	cache.Storage.Set("helloWorld2", keyConfig, paramsRendered, raw, keyConfig.GetTimestamp(time.Now().UTC()))
+	cache.Storage.Set(context.Background(), "helloWorld2", keyConfig, paramsRendered, raw, keyConfig.GetTimestamp(time.Now().UTC()))
 	DisableWarnings()
 	result, err := HelloWorld2(false, params)
 	EnableWarnings()
@@ -1041,9 +1041,9 @@ func runTestWrapWithIgnoreAndObjectResult(t *testing.T, cache *CacheFunk) {
 		t.Errorf("got unexpected poisoned value")
 	}
 
-	cache.Clear()
+	cache.Clear(context.Background())
 
-	count, err = cache.EntryCount()
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cached values after clear got error", err)
 	}
@@ -1111,7 +1111,7 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 3 cached values got error", err)
 	}
@@ -1157,9 +1157,9 @@ func runTestWrapWithContextAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	cache.Clear()
+	cache.Clear(context.Background())
 
-	count, err = cache.EntryCount()
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cached values after clear got error", err)
 	}
@@ -1224,7 +1224,7 @@ func runTestWrapAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	count, err := cache.EntryCount()
+	count, err := cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 3 cached values got error", err)
 	}
@@ -1267,9 +1267,9 @@ func runTestWrapAndObjectResult(t *testing.T, cache *CacheFunk) {
 		}
 	}
 
-	cache.Clear()
+	cache.Clear(context.Background())
 
-	count, err = cache.EntryCount()
+	count, err = cache.EntryCount(context.Background())
 	if err != nil {
 		t.Fatal("expected 0 cached values after clear got error", err)
 	}

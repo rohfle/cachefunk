@@ -2,6 +2,7 @@ package cachefunk
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,21 +27,21 @@ func TestDiskStorage(t *testing.T) {
 	}
 
 	runTestWrapWithStringResult(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestWrapWithContextAndStringResult(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestWrapWithIgnoreAndObjectResult(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestWrapWithContextAndObjectResult(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestWrapAndObjectResult(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheFuncErrorsReturned(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheFuncWithContextErrorsReturned(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	expireAllEntries := func() {
-		storage.iterateFiles(storage.BasePath, func(parent string, file fs.DirEntry) {
+		storage.iterateFiles(context.Background(), storage.BasePath, func(parent string, file fs.DirEntry) {
 			if _, err := file.Info(); err != nil {
 				return
 			}
@@ -48,31 +49,31 @@ func TestDiskStorage(t *testing.T) {
 		})
 	}
 	runTestCacheFuncTTL(t, cache, expireAllEntries)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheFallBackToExpired(t, cache, expireAllEntries)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheFallBackToExpiredWithContext(t, cache, expireAllEntries)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheMismatchCompressionType(t, cache, expireAllEntries)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCleanupUnconfiguredKey(t, cache, expireAllEntries)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheCompressedPayload(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestSingleflightCoalesces(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestSingleflightPanicIsReturnedAsError(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestSingleflightDoneContext(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestSingleflightCallerGivesUp(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestSingleflightReentrantCall(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestSingleflightNestedCalls(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 	runTestCacheErrDoNotCache(t, cache)
-	cache.Clear()
+	cache.Clear(context.Background())
 }
 
 // TestDiskStorageCleanupRemovesEmptyDirs checks that cleanup does not leave the
@@ -85,12 +86,12 @@ func TestDiskStorageCleanupRemovesEmptyDirs(t *testing.T) {
 	config := &KeyConfig{TTL: 1, BodyCodec: StringCodec, BodyCompression: NoCompression}
 	expired := time.Now().UTC().Add(-3600 * time.Second)
 	for _, params := range []string{"p1", "p2", "p3"} {
-		if err := storage.Set("api", config, params, []byte("value"), expired); err != nil {
+		if err := storage.Set(context.Background(), "api", config, params, []byte("value"), expired); err != nil {
 			t.Fatalf("error while setting entry: %s", err)
 		}
 	}
 
-	if err := storage.Cleanup("api", config, time.Now().UTC()); err != nil {
+	if err := storage.Cleanup(context.Background(), "api", config, time.Now().UTC()); err != nil {
 		t.Fatalf("unexpected error from Cleanup: %s", err)
 	}
 
@@ -111,7 +112,7 @@ func TestDiskStorageCleanupRemovesEmptyDirs(t *testing.T) {
 		t.Errorf("expected cleanup to remove the empty directories but found %v", dirs)
 	}
 
-	keys, err := storage.Keys()
+	keys, err := storage.Keys(context.Background())
 	if err != nil {
 		t.Fatalf("error while fetching cache keys: %s", err)
 	}
@@ -150,20 +151,20 @@ func TestBadCacheKeyPaths(t *testing.T) {
 	value := original
 
 	for _, key := range badKeys {
-		err := cache.Set(key, DefaultKeyConfig, "", value)
+		err := cache.Set(context.Background(), key, DefaultKeyConfig, "", value)
 		if err == nil {
 			t.Errorf("expected error with bad key %q, but got nil", key)
 			continue
 		}
 
-		err = cache.Get(key, DefaultKeyConfig, "", &value)
+		err = cache.Get(context.Background(), key, DefaultKeyConfig, "", &value)
 		if err == nil {
 			t.Errorf("expected error with bad key %q, but got nil", key)
 			continue
 		}
 	}
 
-	err = cache.Clear()
+	err = cache.Clear(context.Background())
 	if err != nil {
 		t.Fatalf("error while clearing cache: %s", err)
 	}
@@ -176,11 +177,11 @@ func TestBadCacheKeyPaths(t *testing.T) {
 	value = original
 
 	for _, key := range goodKeys {
-		err := cache.Set(key, DefaultKeyConfig, "", value)
+		err := cache.Set(context.Background(), key, DefaultKeyConfig, "", value)
 		if err != nil {
 			t.Errorf("expected no error with good key %s, but got %s", key, err)
 		}
-		err = cache.Get(key, DefaultKeyConfig, "", &value)
+		err = cache.Get(context.Background(), key, DefaultKeyConfig, "", &value)
 		if err != nil {
 			t.Errorf("expected no error with good key %s, but got %s", key, err)
 		}
@@ -191,7 +192,7 @@ func TestBadCacheKeyPaths(t *testing.T) {
 		}
 	}
 
-	err = cache.Clear()
+	err = cache.Clear(context.Background())
 	if err != nil {
 		t.Fatalf("error while clearing cache: %s", err)
 	}
@@ -231,13 +232,13 @@ func TestDiskStorageCleanupPathEscape(t *testing.T) {
 	// both keys are rejected by the key rule: a key may not contain ".."
 	// anywhere, which is what stops a key from climbing out of the cache root
 	for _, key := range []string{"../sibling", "sub/../../sibling"} {
-		if err := storage.Cleanup(key, DefaultKeyConfig, expireBeforeTime); err == nil {
+		if err := storage.Cleanup(context.Background(), key, DefaultKeyConfig, expireBeforeTime); err == nil {
 			t.Errorf("expected Cleanup with key %q to be rejected, but got nil error", key)
 		}
-		if _, err := storage.ExpiredEntryCount(key, DefaultKeyConfig, expireBeforeTime); err == nil {
+		if _, err := storage.ExpiredEntryCount(context.Background(), key, DefaultKeyConfig, expireBeforeTime); err == nil {
 			t.Errorf("expected ExpiredEntryCount with key %q to be rejected, but got nil error", key)
 		}
-		if err := storage.Set(key, DefaultKeyConfig, "", []byte("value"), expireBeforeTime); err == nil {
+		if err := storage.Set(context.Background(), key, DefaultKeyConfig, "", []byte("value"), expireBeforeTime); err == nil {
 			t.Errorf("expected Set with key %q to be rejected, but got nil error", key)
 		}
 		if _, err := os.Stat(victim); err != nil {
@@ -265,7 +266,7 @@ func TestDiskStorageErrorChain(t *testing.T) {
 		t.Fatalf("error while creating blocker file: %s", err)
 	}
 
-	err = storage.Set("key", DefaultKeyConfig, "params", []byte("value"), time.Now().UTC())
+	err = storage.Set(context.Background(), "key", DefaultKeyConfig, "params", []byte("value"), time.Now().UTC())
 	if err == nil {
 		t.Fatal("expected Set to fail when a file is in the way of the entry directory")
 	}
@@ -296,7 +297,7 @@ func TestDiskStorageConcurrentSetGetNoTornReads(t *testing.T) {
 	want := bytes.Repeat([]byte("0123456789abcdef"), 1<<16) // 1 MiB
 
 	// Prime the entry so readers never race against the very first write.
-	if err := storage.Set(key, config, "", want, time.Now().UTC()); err != nil {
+	if err := storage.Set(context.Background(), key, config, "", want, time.Now().UTC()); err != nil {
 		t.Fatalf("error while priming cache: %s", err)
 	}
 
@@ -315,7 +316,7 @@ func TestDiskStorageConcurrentSetGetNoTornReads(t *testing.T) {
 					return
 				default:
 				}
-				got, err := storage.Get(key, config, "", notExpired)
+				got, err := storage.Get(context.Background(), key, config, "", notExpired)
 				if err != nil {
 					results <- fmt.Errorf("unexpected Get error: %w", err)
 					return
@@ -329,7 +330,7 @@ func TestDiskStorageConcurrentSetGetNoTornReads(t *testing.T) {
 	}
 
 	for range 300 {
-		if err := storage.Set(key, config, "", want, time.Now().UTC()); err != nil {
+		if err := storage.Set(context.Background(), key, config, "", want, time.Now().UTC()); err != nil {
 			t.Fatalf("Set failed: %s", err)
 		}
 	}

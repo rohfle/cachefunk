@@ -156,10 +156,10 @@ type CacheStorage interface {
 // GetLazy returns a decoder for the entry at key and params. A missing entry
 // returns [ErrEntryNotFound]. If the entry has expired and FallbackToExpired is
 // set, GetLazy returns the decoder along with [ErrEntryExpired].
-func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyLoad, error) {
+func (c *CacheFunk) GetLazy(ctx context.Context, key string, config *KeyConfig, params string) (LazyLoad, error) {
 	expireBeforeTime := config.GetExpireTime(time.Now().UTC())
 
-	valueData, err := c.Storage.Get(key, config, params, expireBeforeTime)
+	valueData, err := c.Storage.Get(ctx, key, config, params, expireBeforeTime)
 	useExpired := (err == ErrEntryExpired && config.FallbackToExpired)
 	if err != nil && !useExpired {
 		return nil, err
@@ -174,10 +174,10 @@ func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyL
 // Get decodes the entry at key and params into value, which must be a pointer to
 // the result type. A miss returns [ErrEntryNotFound]. An expired entry returns
 // [ErrEntryExpired], decoding value only when FallbackToExpired is set.
-func (c *CacheFunk) Get(key string, config *KeyConfig, params string, value any) error {
+func (c *CacheFunk) Get(ctx context.Context, key string, config *KeyConfig, params string, value any) error {
 	expireBeforeTime := config.GetExpireTime(time.Now().UTC())
 
-	valueData, err := c.Storage.Get(key, config, params, expireBeforeTime)
+	valueData, err := c.Storage.Get(ctx, key, config, params, expireBeforeTime)
 	useExpired := (err == ErrEntryExpired && config.FallbackToExpired)
 	if err != nil && !useExpired {
 		return err
@@ -196,7 +196,7 @@ func (c *CacheFunk) Get(key string, config *KeyConfig, params string, value any)
 // [KeyConfig.GetTimestamp]. A value the configured codec cannot encode returns an
 // error wrapping [ErrCannotSerialise]. A TTL of TTLEntryImmediatelyExpires
 // without FallbackToExpired stores nothing and returns nil.
-func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any) error {
+func (c *CacheFunk) Set(ctx context.Context, key string, config *KeyConfig, params string, value any) error {
 	if config.TTL == TTLEntryImmediatelyExpires && !config.FallbackToExpired {
 		return nil // discard the entry - do not cache
 	}
@@ -210,7 +210,7 @@ func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any)
 		return fmt.Errorf("%w: %w", ErrCannotSerialise, err)
 	}
 
-	return c.Storage.Set(key, config, params, valueData, timestamp)
+	return c.Storage.Set(ctx, key, config, params, valueData, timestamp)
 }
 
 // FaultCounts returns the current counters. Each field is read atomically; the
@@ -227,17 +227,20 @@ func (c *CacheFunk) FaultCounts() FaultCounts {
 
 // EntryCount returns the number of entries across all keys, including expired
 // entries that [CacheFunk.Cleanup] has not removed yet.
-func (c *CacheFunk) EntryCount() (int64, error) {
-	return c.Storage.EntryCount()
+func (c *CacheFunk) EntryCount(ctx context.Context) (int64, error) {
+	return c.Storage.EntryCount(ctx)
 }
 
 // ExpiredEntryCount returns how many entries have passed their expiry time,
 // across all keys. Keys that never expire are skipped.
-func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
+func (c *CacheFunk) ExpiredEntryCount(ctx context.Context) (int64, error) {
 	var count int64
 	now := time.Now().UTC()
-	keys, err := c.Storage.Keys()
+	keys, err := c.Storage.Keys(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		return 0, fmt.Errorf("error while fetching cache keys: %w", err)
 	}
 	// Iterate over keys present in Storage rather than keys present in Config,
@@ -248,8 +251,11 @@ func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 			continue
 		}
 		expireBeforeTime := config.GetExpireTime(now)
-		chunk, err := c.Storage.ExpiredEntryCount(key, config, expireBeforeTime)
+		chunk, err := c.Storage.ExpiredEntryCount(ctx, key, config, expireBeforeTime)
 		if err != nil {
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
 			return 0, fmt.Errorf("error while fetching expired entry count for key=%q: %w", key, err)
 		}
 		count += chunk
@@ -270,21 +276,34 @@ func (c *CacheFunk) storageTimeout() time.Duration {
 	}
 }
 
+// storageContext bounds parent by the effective storage timeout, or returns it
+// unchanged when bounds are disabled.
+func (c *CacheFunk) storageContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if d := c.storageTimeout(); d > 0 {
+		return context.WithTimeout(parent, d)
+	}
+	return parent, func() {}
+}
+
 // Clear removes every entry, across all keys.
-func (c *CacheFunk) Clear() error {
-	return c.Storage.Clear()
+func (c *CacheFunk) Clear(ctx context.Context) error {
+	return c.Storage.Clear(ctx)
 }
 
 // Cleanup deletes the expired entries of every key in storage. It skips keys that
 // never expire. It also skips keys with FallbackToExpired unless
 // forceCleanupExpired is set, because their expired entries can answer a failed
-// retrieval. Failures become warnings; the next call retries them.
-func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
+// retrieval. Per-key failures become warnings; cancellation returns ctx.Err() and
+// may leave the work partly done.
+func (c *CacheFunk) Cleanup(ctx context.Context, forceCleanupExpired bool) error {
 	now := time.Now().UTC()
-	keys, err := c.Storage.Keys()
+	keys, err := c.Storage.Keys(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		warning("failed to list cache keys for cleanup: %s", err)
-		return
+		return nil
 	}
 	// Iterate over keys present in Storage rather than keys present in Config,
 	// so entries under defaults are cleaned up also
@@ -294,11 +313,14 @@ func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 			continue
 		}
 		expireBeforeTime := config.GetExpireTime(now)
-		err := c.Storage.Cleanup(key, config, expireBeforeTime)
-		if err != nil {
+		if err := c.Storage.Cleanup(ctx, key, config, expireBeforeTime); err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("cleanup cancelled at key=%q: %w", key, ctx.Err())
+			}
 			warning("failed to cleanup cache key=%q: %s", key, err)
 		}
 	}
+	return nil
 }
 
 // Wrap returns retrieveFunc bound to cache under key, the curried form of
@@ -396,27 +418,33 @@ func shortParams(params string) string {
 
 // tryCache returns hit=true with a decoded result for a fresh entry. If only an
 // expired entry is available and FallbackToExpired is set, lazyload is non-nil
-// so the caller can use it as a fallback.
-func tryCache[R any](cache *CacheFunk, key string, config *KeyConfig, paramStr string) (result R, lazyload LazyLoad, hit bool) {
-	lazyload, err := cache.GetLazy(key, config, paramStr)
-	if err == nil {
-		if err = lazyload(&result); err == nil {
-			return result, nil, true
+// so the caller can use it as a fallback. err is non-nil only when ctx was
+// cancelled or timed out during the read, leaving the owner of ctx to decide
+// whether that counts as a fault.
+func tryCache[R any](ctx context.Context, cache *CacheFunk, key string, config *KeyConfig, paramStr string) (result R, lazyload LazyLoad, hit bool, err error) {
+	lazyload, gerr := cache.GetLazy(ctx, key, config, paramStr)
+	if gerr == nil {
+		if derr := lazyload(&result); derr == nil {
+			return result, nil, true, nil
+		} else {
+			// Fresh entry exists but won't decode. Return a nil lazyload so the
+			// caller can't "fall back" to the same undecodable bytes: a retry would
+			// fail identically and only mask the corruption.
+			cache.faults.decodeErrors.Add(1)
+			warning("ignoring error while decoding cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), derr)
+			var zero R
+			return zero, nil, false, nil
 		}
-		// Fresh entry exists but won't decode. Return a nil lazyload so the
-		// caller can't "fall back" to the same undecodable bytes: a retry would
-		// fail identically and only mask the corruption.
-		cache.faults.decodeErrors.Add(1)
-		warning("ignoring error while decoding cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), err)
-		var zero R
-		return zero, nil, false
 	}
-	if err != ErrEntryNotFound && err != ErrEntryExpired {
+	if cerr := ctx.Err(); cerr != nil {
+		return result, nil, false, cerr
+	}
+	if gerr != ErrEntryNotFound && gerr != ErrEntryExpired {
 		cache.faults.readErrors.Add(1)
-		warning("ignoring error while getting cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), err)
+		warning("ignoring error while getting cached result for key=%q paramStr=%s: %s", key, shortParams(paramStr), gerr)
 	}
 	// ErrEntryExpired with FallbackToExpired: lazyload is non-nil and usable
-	return result, lazyload, false
+	return result, lazyload, false, nil
 }
 
 // cacheImpl looks up key and params in the cache and, on a miss, calls
@@ -446,9 +474,22 @@ func cacheImpl[Params any, ResultType any](
 		return zero, fmt.Errorf("failed to marshal parameters key=%q params=%+v: %w", key, params, err)
 	}
 
-	// Fast path: fresh cache hit, no coordination needed
+	// Fast path: fresh cache hit, no coordination needed. A caller that is
+	// already gone still gets an instant hit, so that read is detached and
+	// bounded; the resolve below is skipped either way.
 	if !ignoreCache {
-		if result, _, hit := tryCache[ResultType](cache, key, config, paramStr); hit {
+		readCtx := ctx
+		if ctx.Err() != nil {
+			var cancel context.CancelFunc
+			readCtx, cancel = cache.storageContext(context.WithoutCancel(ctx))
+			defer cancel()
+		}
+		result, _, hit, terr := tryCache[ResultType](readCtx, cache, key, config, paramStr)
+		if terr != nil {
+			// the caller's context is done: return before starting a resolve
+			return zero, terr
+		}
+		if hit {
 			return result, nil
 		}
 	}
@@ -476,16 +517,6 @@ func cacheImpl[Params any, ResultType any](
 			}
 		}()
 
-		// Re-check the cache in case a previous flight just populated it
-		var fallback LazyLoad
-		if !ignoreCache {
-			result, lazyload, hit := tryCache[ResultType](cache, key, config, paramStr)
-			if hit {
-				return result, nil
-			}
-			fallback = lazyload
-		}
-
 		// Detached from the leader's cancellation (values are preserved), so one
 		// caller going away doesn't fail everyone else waiting on this flight.
 		// The marker lets nested calls on the same key and params detect re-entrancy.
@@ -493,11 +524,32 @@ func cacheImpl[Params any, ResultType any](
 		// their own timeouts.
 		flightCtx := context.WithValue(context.WithoutCancel(ctx), flightMarker(flightKey), struct{}{})
 
+		// Re-check the cache in case a previous flight just populated it. The read
+		// stays bounded: a hung storage would otherwise block every waiter.
+		var fallback LazyLoad
+		if !ignoreCache {
+			readCtx, cancel := cache.storageContext(flightCtx)
+			result, lazyload, hit, terr := tryCache[ResultType](readCtx, cache, key, config, paramStr)
+			cancel()
+			if terr != nil {
+				// the bound fired, so this is a storage fault and not a caller leaving
+				cache.faults.readErrors.Add(1)
+				warning("storage timed out reading key=%q paramStr=%s: %s", key, shortParams(paramStr), terr)
+			} else if hit {
+				return result, nil
+			}
+			fallback = lazyload
+		}
+
 		result, rerr := resolverFunc(flightCtx, params)
 		switch {
 		case rerr == nil:
-			// call to resolver was successful, set value in cache
-			if serr := cache.Set(key, config, paramStr, result); serr != nil {
+			// call to resolver was successful, set value in cache. The write stays
+			// bounded so a hung storage cannot keep the waiters blocked either
+			writeCtx, cancel := cache.storageContext(flightCtx)
+			serr := cache.Set(writeCtx, key, config, paramStr, result)
+			cancel()
+			if serr != nil {
 				if errors.Is(serr, ErrCannotSerialise) {
 					// this value will never be cacheable
 					cache.faults.serialiseErrors.Add(1)
