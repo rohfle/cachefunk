@@ -15,8 +15,8 @@ import (
 var warningLogger atomic.Pointer[log.Logger]
 
 // DefaultWarningInterval is how often the same warning is printed. A cache that
-// cannot be written to warns on every call, which is both noise and, when the
-// cause is a full disk, more pressure on it.
+// cannot be written to would otherwise warn on every call. That is noise, and on
+// a full disk it adds load to the disk.
 const DefaultWarningInterval = time.Minute
 
 // warningInterval is the current interval in nanoseconds, zero to print every
@@ -38,15 +38,16 @@ func init() {
 	EnableWarnings()
 }
 
-// WarningInterval returns how often the same warning should be printed, or zero
-// when every warning should be printed
+// WarningInterval returns the minimum interval between repeats of the same
+// warning, or zero when warnings are not suppressed.
 func WarningInterval() time.Duration {
 	return time.Duration(warningInterval.Load())
 }
 
-// SetWarningInterval sets how often the same warning is printed. Warnings
-// suppressed in between are counted and reported upon the next warning.
-// Zero or a negative duration prints every warning.
+// SetWarningInterval sets the minimum interval between repeats of the same
+// warning. Warnings suppressed in between are counted and reported with the next
+// warning. Zero or a negative duration prints every warning. SetWarningInterval
+// is safe to call concurrently with warnings being printed.
 func SetWarningInterval(interval time.Duration) {
 	warningInterval.Store(int64(interval))
 }
@@ -77,19 +78,24 @@ func warning(fmtStr string, args ...any) {
 	warningLogger.Load().Printf(fmtStr, args...)
 }
 
-// SetWarningLog allows redirection of warning output
+// SetWarningLog sends warnings to logger instead of standard output. A nil logger
+// is ignored. SetWarningLog is safe to call concurrently with warnings being
+// printed.
 func SetWarningLog(logger *log.Logger) {
 	if logger != nil {
 		warningLogger.Store(logger)
 	}
 }
 
-// DisableWarnings stops warnings from being printed
+// DisableWarnings discards warnings instead of printing them. DisableWarnings is
+// safe to call concurrently with warnings being printed.
 func DisableWarnings() {
 	warningLogger.Store(log.New(io.Discard, "", 0))
 }
 
-// EnableWarnings prints warnings to standard output, which is the default
+// EnableWarnings sends warnings to standard output prefixed with "WARNING: ",
+// which is the default. EnableWarnings is safe to call concurrently with warnings
+// being printed.
 func EnableWarnings() {
 	warningLogger.Store(log.New(os.Stdout, "WARNING: ", log.LstdFlags))
 }

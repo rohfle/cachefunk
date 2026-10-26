@@ -6,14 +6,23 @@ import (
 	"fmt"
 )
 
+// ParamCodec serialises call parameters into the string that, together with the
+// key, identifies a cache entry. A [KeyConfig] selects one by String, which is
+// also the name used in configuration JSON.
 type ParamCodec interface {
+	// Marshal serialises v into the entry's params.
 	Marshal(v any) (string, error)
+	// Unmarshal deserialises data into v, which must be a pointer.
 	Unmarshal(data string, v any) error
+	// String is the name used to select the codec in configuration.
 	String() string
 }
 
 type jsonParams struct{}
 
+// JSONParams serialises parameters as JSON and is the default param codec. The
+// result can contain quotes, commas and braces, so it is not URL or file name
+// safe.
 var JSONParams = &jsonParams{}
 
 func (c *jsonParams) Marshal(v any) (string, error) {
@@ -35,6 +44,8 @@ func (c *jsonParams) String() string {
 
 type jsonBase64Params struct{}
 
+// JSONBase64Params serialises parameters as URL-safe base64 of their JSON, so
+// the result can go in a URL or a file name without escaping.
 var JSONBase64Params = &jsonBase64Params{}
 
 func (c *jsonBase64Params) Marshal(v any) (string, error) {

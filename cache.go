@@ -1,4 +1,12 @@
-// Package cachefunk provides caching wrappers for functions
+// Package cachefunk caches the results of function calls.
+//
+// The cache identifies each call by a key and its serialised parameters. The
+// first call runs the function and stores the result. Later calls return the
+// stored result until it expires. Concurrent misses for the same key and
+// parameters share one call.
+//
+// Each key has a [KeyConfig] controlling its TTL, fallback, codecs and
+// compression, and a [CacheStorage] decides where entries are kept.
 package cachefunk
 
 import (
@@ -12,15 +20,26 @@ import (
 )
 
 var (
+	// ErrEntryNotFound is returned when there is no entry for the key and params.
 	ErrEntryNotFound = errors.New("cache entry not found")
-	ErrEntryExpired  = errors.New("cache entry expired")
-	ErrDoNotCache    = errors.New("do not cache the entry")
 
-	// ErrReentrantCall is returned when a resolver calls back into the cache with the
-	// same key+params it is currently resolving, using the context it was given.
+	// ErrEntryExpired is returned when an entry exists but has passed its expiry
+	// time. Storage keeps the entry, so a caller with FallbackToExpired can use the
+	// stale value.
+	ErrEntryExpired = errors.New("cache entry expired")
+
+	// ErrDoNotCache is returned by a resolver whose result is valid but must not
+	// be cached. The caller receives the result anyway and nothing is stored.
+	ErrDoNotCache = errors.New("do not cache the entry")
+
+	// ErrReentrantCall is returned when a resolver calls back into the cache for the
+	// same key and params it is resolving, using the context it was given.
 	ErrReentrantCall = errors.New("re-entrant cache call on same key and params")
 )
 
+// LazyLoad decodes a cached entry into value, which must be a pointer to the
+// result type. [CacheFunk.GetLazy] returns one so the caller decodes only when it
+// needs the value.
 type LazyLoad func(any) error
 
 // ErrCannotSerialise is returned when a value cannot be represented in the cache
@@ -31,32 +50,40 @@ var ErrCannotSerialise = errors.New("value cannot be serialised")
 
 type ignoreCacheKey struct{}
 
-// flightMarker is a context key; one distinct key per in-flight key+params.
+// flightMarker is a context key; one distinct key per in-flight key and params.
 type flightMarker string
 
+// GetIgnoreCacheFromContext reports whether ctx was marked by
+// [SetIgnoreCacheInContext]. [CacheWithContext] and [WrapWithContext] honour the
+// mark; an unmarked context reads as false.
 func GetIgnoreCacheFromContext(ctx context.Context) bool {
 	ignoreCache, _ := ctx.Value(ignoreCacheKey{}).(bool)
 	return ignoreCache
 }
 
+// SetIgnoreCacheInContext returns a copy of ctx that makes [CacheWithContext]
+// and [WrapWithContext] skip reading the cache.
 func SetIgnoreCacheInContext(ctx context.Context, value bool) context.Context {
 	return context.WithValue(ctx, ignoreCacheKey{}, value)
 }
 
+// CacheFunk is a cache in front of a [CacheStorage]. It is safe for concurrent
+// use by multiple goroutines and must not be copied after first use.
 type CacheFunk struct {
-	Config  Config
+	// Config holds the settings for each key. Keys without an entry use
+	// DefaultKeyConfig.
+	Config Config
+	// Storage stores the cached values. A nil Storage panics on first use.
 	Storage CacheStorage
 
-	// flights collapses concurrent cache misses for the same key+params into a
-	// single upstream call. The zero value is ready to use. Do not copy a
-	// CacheFunk by value after first use.
+	// flights collapses concurrent misses for the same key and params into
+	// one upstream call. The zero value is ready to use.
 	flights singleflight.Group
 
-	// faults counts caching failures, read using the funciton FaultCounts.
+	// faults accumulates the counters that FaultCounts reports.
 	faults faultCounts
 }
 
-// faultCounts holds the counters behind CacheFunk.FaultCounts
 type faultCounts struct {
 	readErrors      atomic.Int64
 	decodeErrors    atomic.Int64
@@ -65,37 +92,54 @@ type faultCounts struct {
 }
 
 // FaultCounts are cumulative counts of cache side failures, as returned by
-// CacheFunk.FaultCounts.
+// [CacheFunk.FaultCounts].
 type FaultCounts struct {
-	// ReadErrors counts storage reads that failed
+	// ReadErrors counts storage reads that failed.
 	ReadErrors int64
-	// DecodeErrors counts cached values that could not be decoded
+	// DecodeErrors counts cached values that could not be decoded.
 	DecodeErrors int64
 	// WriteErrors counts values that could not be stored. The caller is not told
-	// about these - the resolved value is returned uncached
+	// about these; the resolved value is returned uncached.
 	WriteErrors int64
 	// SerialiseErrors counts values that could not be serialised for storage,
-	// which is also reported to the caller as an error
+	// which is also reported to the caller as an error.
 	SerialiseErrors int64
 }
 
+// CacheStorage is where [CacheFunk] keeps entries. [InMemoryStorage],
+// [DiskStorage] and [GORMStorage] implement it. Implementations must be safe for
+// concurrent use by multiple goroutines.
 type CacheStorage interface {
-	// Get a value from the cache if it exists
+	// Get returns the entry stored for key and params. A missing entry returns
+	// ErrEntryNotFound. An expired entry returns ErrEntryExpired, along with the
+	// value when FallbackToExpired is set. An entry written with a different
+	// compression than the key's configured compression counts as missing.
 	Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) (value []byte, err error)
-	// Set a raw value for key in the cache
+
+	// Set stores value for key and params, recording timestamp as the write time.
 	Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) (err error)
-	// Get the distinct cache keys that currently have entries in the cache
+
+	// Keys returns the distinct cache keys that have entries.
 	Keys() (keys []string, err error)
-	// Get the number of entries in the cache
+
+	// EntryCount returns the number of entries in the cache.
 	EntryCount() (count int64, err error)
-	// Get how many entries have expired in the cache compared to expireBeforeTime
+
+	// ExpiredEntryCount returns the number of entries under key whose timestamp is
+	// before expireBeforeTime.
 	ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (count int64, err error)
-	// Delete all entries in the cache
+
+	// Clear deletes every entry in the cache.
 	Clear() error
-	// Delete entries that have timestamps in cache before expireBeforeTime
+
+	// Cleanup deletes the entries under key whose timestamp is before
+	// expireBeforeTime.
 	Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error
 }
 
+// GetLazy returns a decoder for the entry at key and params. A missing entry
+// returns [ErrEntryNotFound]. If the entry has expired and FallbackToExpired is
+// set, GetLazy returns the decoder along with [ErrEntryExpired].
 func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyLoad, error) {
 	expireBeforeTime := config.GetExpireTime(time.Now().UTC())
 
@@ -111,6 +155,9 @@ func (c *CacheFunk) GetLazy(key string, config *KeyConfig, params string) (LazyL
 	return lazyload, err
 }
 
+// Get decodes the entry at key and params into value, which must be a pointer to
+// the result type. A miss returns [ErrEntryNotFound]. An expired entry returns
+// [ErrEntryExpired], decoding value only when FallbackToExpired is set.
 func (c *CacheFunk) Get(key string, config *KeyConfig, params string, value any) error {
 	expireBeforeTime := config.GetExpireTime(time.Now().UTC())
 
@@ -129,6 +176,10 @@ func (c *CacheFunk) Get(key string, config *KeyConfig, params string, value any)
 	return nil
 }
 
+// Set encodes value and stores it at key and params, timestamped by
+// [KeyConfig.GetTimestamp]. A value the configured codec cannot encode returns an
+// error wrapping [ErrCannotSerialise]. A TTL of TTLEntryImmediatelyExpires
+// without FallbackToExpired stores nothing and returns nil.
 func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any) error {
 	if config.TTL == TTLEntryImmediatelyExpires && !config.FallbackToExpired {
 		return nil // discard the entry - do not cache
@@ -146,8 +197,9 @@ func (c *CacheFunk) Set(key string, config *KeyConfig, params string, value any)
 	return c.Storage.Set(key, config, params, valueData, timestamp)
 }
 
-// FaultCounts returns the cumulative counts of cache side failures atomically.
-// Failures the cache absorbs are otherwise only visible in the warning log.
+// FaultCounts returns the current counters. Each field is read atomically; the
+// four are not a snapshot of one instant. Failures the cache absorbs are
+// otherwise only visible in the warning log.
 func (c *CacheFunk) FaultCounts() FaultCounts {
 	return FaultCounts{
 		ReadErrors:      c.faults.readErrors.Load(),
@@ -157,10 +209,14 @@ func (c *CacheFunk) FaultCounts() FaultCounts {
 	}
 }
 
+// EntryCount returns the number of entries across all keys, including expired
+// entries that [CacheFunk.Cleanup] has not removed yet.
 func (c *CacheFunk) EntryCount() (int64, error) {
 	return c.Storage.EntryCount()
 }
 
+// ExpiredEntryCount returns how many entries have passed their expiry time,
+// across all keys. Keys that never expire are skipped.
 func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 	var count int64
 	now := time.Now().UTC()
@@ -185,10 +241,15 @@ func (c *CacheFunk) ExpiredEntryCount() (int64, error) {
 	return count, nil
 }
 
+// Clear removes every entry, across all keys.
 func (c *CacheFunk) Clear() error {
 	return c.Storage.Clear()
 }
 
+// Cleanup deletes the expired entries of every key in storage. It skips keys that
+// never expire. It also skips keys with FallbackToExpired unless
+// forceCleanupExpired is set, because their expired entries can answer a failed
+// retrieval. Failures become warnings; the next call retries them.
 func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 	now := time.Now().UTC()
 	keys, err := c.Storage.Keys()
@@ -211,8 +272,9 @@ func (c *CacheFunk) Cleanup(forceCleanupExpired bool) {
 	}
 }
 
-// Wrap type functions
-// These don't work with type methods unfortunately
+// Wrap returns retrieveFunc bound to cache under key, the curried form of
+// [Cache]. Go methods cannot have their own type parameters, so the wrapper is a
+// function rather than a [CacheFunk] method.
 func Wrap[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,
@@ -223,6 +285,8 @@ func Wrap[Params any, ResultType any](
 	}
 }
 
+// WrapWithIgnore is [Wrap] for a resolver that also takes ignoreCache, so each
+// call can skip reading the cache. The retrieved result is still stored.
 func WrapWithIgnore[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,
@@ -233,6 +297,9 @@ func WrapWithIgnore[Params any, ResultType any](
 	}
 }
 
+// WrapWithContext is [Wrap] for a resolver that takes a context.Context. Whether
+// the call ignores the cache is read from that context; see
+// [SetIgnoreCacheInContext].
 func WrapWithContext[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,
@@ -243,6 +310,9 @@ func WrapWithContext[Params any, ResultType any](
 	}
 }
 
+// Cache returns the fresh entry at key and params, or calls resolverFunc,
+// stores its result and returns it. Concurrent misses for the same key and
+// params share a single resolverFunc call.
 func Cache[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,
@@ -255,6 +325,9 @@ func Cache[Params any, ResultType any](
 	return cacheImpl(context.Background(), cache, key, adapted, false, params)
 }
 
+// CacheWithIgnore is [Cache] with ignoreCache. The call skips reading the cache
+// but joins an in-flight retrieval for the same key and params. The result is
+// stored.
 func CacheWithIgnore[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,
@@ -268,6 +341,11 @@ func CacheWithIgnore[Params any, ResultType any](
 	return cacheImpl(context.Background(), cache, key, adapted, ignoreCache, params)
 }
 
+// CacheWithContext is [Cache] with ctx passed to resolverFunc and used to bound
+// waiting. The resolver runs detached from ctx's cancellation, so one caller
+// giving up does not fail the others sharing the retrieval. Each caller stops
+// waiting when its own ctx ends. A context marked by [SetIgnoreCacheInContext]
+// skips reading the cache.
 func CacheWithContext[Params any, ResultType any](
 	cache *CacheFunk,
 	key string,
@@ -312,13 +390,13 @@ func tryCache[R any](cache *CacheFunk, key string, config *KeyConfig, paramStr s
 	return result, lazyload, false
 }
 
-// cacheImpl looks up key+params in the cache and, on a miss, calls resolverFunc.
-// Concurrent misses for the same key+params share a single resolver call
-// (singleflight). Each caller waits on its own ctx; the resolver itself runs on
-// a context detached from any individual caller's cancellation.
+// cacheImpl looks up key and params in the cache and, on a miss, calls
+// resolverFunc. Concurrent misses for the same key and params share a single
+// resolver call (singleflight). Each caller waits on its own ctx; the resolver
+// itself runs on a context detached from any individual caller's cancellation.
 //
-// A resolver must not call the cache for the same key+params it is currently
-// resolving. Context-aware callers that pass the resolver's context through get
+// A resolver must not call the cache for the same key and params it is resolving.
+// Context-aware callers that pass the resolver's context through get
 // ErrReentrantCall; ctxless callers will wait on themselves (forever, since
 // there is no deadline).
 func cacheImpl[Params any, ResultType any](
@@ -336,7 +414,6 @@ func cacheImpl[Params any, ResultType any](
 	// key + parameters determines a unique identifier for a request
 	paramStr, err := config.GetParamCodec().Marshal(params)
 	if err != nil {
-		// let parent handle error
 		return zero, fmt.Errorf("failed to marshal parameters key=%q params=%+v: %w", key, params, err)
 	}
 
@@ -354,7 +431,7 @@ func cacheImpl[Params any, ResultType any](
 
 	flightKey := fmt.Sprintf("%d:%s%s", len(key), key, paramStr)
 
-	// Called from inside our own resolver (same key+params): joining the flight
+	// Called from inside our own resolver (same key and params): joining the flight
 	// would wait on ourselves forever.
 	if ctx.Value(flightMarker(flightKey)) != nil {
 		return zero, fmt.Errorf("%w: key=%q paramStr=%+v", ErrReentrantCall, key, paramStr)
@@ -382,7 +459,7 @@ func cacheImpl[Params any, ResultType any](
 
 		// Detached from the leader's cancellation (values are preserved), so one
 		// caller going away doesn't fail everyone else waiting on this flight.
-		// The marker lets nested calls on the same key+params detect re-entrancy.
+		// The marker lets nested calls on the same key and params detect re-entrancy.
 		// Note the leader's deadline is dropped too: resolvers should enforce
 		// their own timeouts.
 		flightCtx := context.WithValue(context.WithoutCancel(ctx), flightMarker(flightKey), struct{}{})
@@ -406,7 +483,7 @@ func cacheImpl[Params any, ResultType any](
 		case errors.Is(rerr, ErrDoNotCache):
 			// the result is valid, but do not cache the result
 			// useful for things like gateway timeout in http, where you want to return the response
-			// but it doesnt make sense to use the same response next time
+			// but it doesn't make sense to use the same response next time
 			// errors.Is rather than == so a resolver wrapping the error with %w is honoured too
 			return result, nil
 		default:

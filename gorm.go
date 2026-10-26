@@ -12,7 +12,10 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// GORMStorage stores cached items in a database table
+// GORMStorage stores cached items in a database table.
+//
+// A GORMStorage is safe for concurrent use by multiple goroutines. The zero value
+// is not usable: call [NewGORMStorage].
 type GORMStorage struct {
 	DB *gorm.DB
 }
@@ -42,6 +45,9 @@ func paramsHash(params string) []byte {
 	return sum[:]
 }
 
+// NewGORMStorage returns a storage using db, migrating the cache table into
+// existence if it is absent. Migration never drops a column or index, so a layout
+// change that removes or renames one needs the old table dropped first.
 func NewGORMStorage(db *gorm.DB) (*GORMStorage, error) {
 	cache := GORMStorage{
 		DB: db.Session(&gorm.Session{
@@ -75,7 +81,6 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBe
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, ErrEntryNotFound
 		}
-		// other errors return as is
 		return nil, result.Error
 	}
 
@@ -91,12 +96,13 @@ func (c *GORMStorage) Get(key string, config *KeyConfig, params string, expireBe
 	if expireBeforeTime.After(cacheEntry.Timestamp) {
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value
-		// will be used if retrieve function fails
+		// will be used if the resolver fails
 		return value, ErrEntryExpired
 	}
 	return value, nil
 }
 
+// Set replaces any existing entry for the same key and params.
 func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
 	cacheEntry := CacheEntry{
 		Key:             key,
@@ -107,7 +113,6 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 		CompressionType: config.GetBodyCompression().String(),
 	}
 
-	// create or update cacheEntry
 	result := c.DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}, {Name: "params_hash"}},
 		DoUpdates: clause.AssignmentColumns([]string{"params", "data", "timestamp", "compression_type"}),
@@ -119,7 +124,6 @@ func (c *GORMStorage) Set(key string, config *KeyConfig, params string, value []
 	return nil
 }
 
-// Keys returns the distinct cache keys that currently have entries
 func (c *GORMStorage) Keys() ([]string, error) {
 	var keys []string
 	// Distinct and Pluck build quoted column references, unlike a raw SQL
@@ -131,7 +135,7 @@ func (c *GORMStorage) Keys() ([]string, error) {
 	return keys, nil
 }
 
-// Clear will delete all cache entries
+// Clear deletes every row in the cache table.
 func (c *GORMStorage) Clear() error {
 	// gorm refuses a delete that has no conditions, and "1 = 1" is the condition
 	result := c.DB.Where("1 = 1").Delete(&CacheEntry{})
@@ -141,7 +145,7 @@ func (c *GORMStorage) Clear() error {
 	return nil
 }
 
-// Cleanup will delete all cache entries that have expired
+// Cleanup deletes the expired entries stored under one key.
 func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	result := c.DB.
 		Where(map[string]any{"key": key}).
@@ -153,6 +157,7 @@ func (c *GORMStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime ti
 	return nil
 }
 
+// EntryCount returns the number of rows in the cache table.
 func (c *GORMStorage) EntryCount() (int64, error) {
 	var count int64
 	result := c.DB.Model(&CacheEntry{}).Count(&count)

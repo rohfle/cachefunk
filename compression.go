@@ -7,16 +7,24 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+// Compression compresses cached values before storage. The Write and Read
+// variants stream a value instead of holding a second copy.
 type Compression interface {
+	// Compress returns the compressed form of input.
 	Compress(input []byte) ([]byte, error)
+	// Decompress reverses Compress.
 	Decompress(input []byte) ([]byte, error)
+	// CompressAndWrite writes the compressed form of data to w.
 	CompressAndWrite(w io.Writer, data []byte) error
+	// ReadAndDecompress reads compressed data from r and returns it decompressed.
 	ReadAndDecompress(r io.Reader) ([]byte, error)
+	// String is the name used to select the compression in configuration.
 	String() string
 }
 
 type noCompression struct{}
 
+// NoCompression stores values unchanged.
 var NoCompression = &noCompression{}
 
 func (g *noCompression) CompressAndWrite(w io.Writer, data []byte) error {
@@ -42,9 +50,11 @@ func (g *noCompression) String() string {
 
 type zstdCompression struct{}
 
+// ZstdCompression compresses values with zstd and is the default. An empty value
+// becomes a valid frame, so it reads back as an empty value rather than a missing
+// entry.
 var ZstdCompression = &zstdCompression{}
 
-// Create a decoder and encoder for Compress and Decompress
 var (
 	zstdEncoder = newZstdEncoder()
 	zstdDecoder = newZstdDecoder()

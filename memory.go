@@ -7,18 +7,29 @@ import (
 	"time"
 )
 
+// InMemoryStorageEntry is one stored value, with the time it was written and the
+// compression it was written with.
 type InMemoryStorageEntry struct {
-	Data            []byte
-	Timestamp       time.Time
+	// Data is the encoded value, compressed as CompressionType describes.
+	Data []byte
+	// Timestamp is when the value was written, and the point the TTL counts from.
+	Timestamp time.Time
+	// CompressionType is the String form of the Compression used to encode Data.
 	CompressionType string
 }
 
-// InMemoryStorage stores cache entries in a map of cache key to map of params
+// InMemoryStorage stores cache entries in a map of cache key to map of params.
+// Expired entries stay until they are overwritten or removed, so call
+// [CacheFunk.Cleanup] periodically to bound memory use.
+//
+// An InMemoryStorage is safe for concurrent use by multiple goroutines. The zero
+// value is not usable: call [NewInMemoryStorage].
 type InMemoryStorage struct {
 	store map[string]map[string]*InMemoryStorageEntry
 	mutex sync.RWMutex
 }
 
+// NewInMemoryStorage returns an empty InMemoryStorage, ready to use.
 func NewInMemoryStorage() *InMemoryStorage {
 	cache := InMemoryStorage{
 		store: make(map[string]map[string]*InMemoryStorageEntry),
@@ -26,6 +37,8 @@ func NewInMemoryStorage() *InMemoryStorage {
 	return &cache
 }
 
+// Get returns the entry for params under key. An expired entry is left in the
+// map so FallbackToExpired can use it.
 func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	c.mutex.RLock()
 	value, found := c.store[key][params]
@@ -44,13 +57,14 @@ func (c *InMemoryStorage) Get(key string, config *KeyConfig, params string, expi
 	if expireBeforeTime.After(value.Timestamp) {
 		// item has expired but DO NOT REMOVE THE ITEM
 		// if FallbackToExpired option set expired value
-		// will be used if retrieve function fails
+		// will be used if the resolver fails
 		return value.Data, ErrEntryExpired
 	}
 
 	return value.Data, nil
 }
 
+// Set stores value under key and params, replacing any earlier entry.
 func (c *InMemoryStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
 	entry := &InMemoryStorageEntry{
 		Data:            value,
@@ -69,7 +83,6 @@ func (c *InMemoryStorage) Set(key string, config *KeyConfig, params string, valu
 	return nil
 }
 
-// Keys returns the distinct cache keys that currently have entries
 func (c *InMemoryStorage) Keys() ([]string, error) {
 	c.mutex.RLock()
 	keys := make([]string, 0, len(c.store))
@@ -87,6 +100,8 @@ func (c *InMemoryStorage) Clear() error {
 	return nil
 }
 
+// Cleanup deletes the expired entries stored under one key, and the key itself
+// once no entries remain.
 func (c *InMemoryStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	c.mutex.Lock()
 	for params, value := range c.store[key] {

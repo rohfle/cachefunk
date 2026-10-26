@@ -16,9 +16,7 @@ const TTLEntryNeverExpires = -1
 // All cache Sets will do nothing and all non-fallback Gets return no result
 const TTLEntryImmediatelyExpires = 0
 
-// Date ranges
-// This allows compatibility with different storage backends including
-// modtimes on modern filesystems, databases and so on
+// Date ranges keep timestamps compatible with file system and database backends.
 
 // MinDate is the earliest time that cachefunk uses (1970-01-01)
 var MinDate = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -26,22 +24,24 @@ var MinDate = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 // MaxDate is the latest time that cachefunk uses (9999-01-01)
 var MaxDate = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// TTLMax is a reasonable limit in seconds for the lifetime of a cached item
-// Set to approximately 10 years max which is still huge for a TTL
-// A TTL above this never expires
+// TTLMax is the largest usable TTL in seconds, about 10 years. A TTL above it
+// never expires.
 var TTLMax = int64(10 * (365 * 24 * time.Hour / time.Second))
 
-// Defaults
-
+// DefaultBodyCodec is the [BodyCodec] used when a key sets none.
 var DefaultBodyCodec = JSONCodec
+
+// DefaultBodyCompression is the [Compression] used when a key sets none.
 var DefaultBodyCompression = ZstdCompression
+
+// DefaultParamCodec is the [ParamCodec] used when a key sets none.
 var DefaultParamCodec = JSONParams
 
 // DefaultKey is the config key under which default settings are stored for
 // cache keys that do not have their own settings.
 const DefaultKey = "default"
 
-// DefaultKeyConfig holds the settings for any key that does not have config defined
+// DefaultKeyConfig holds the settings used by keys that Config does not list.
 var DefaultKeyConfig = &KeyConfig{
 	TTL:               3600,
 	TTLJitter:         300,
@@ -70,11 +70,12 @@ func (c Config) Get(key string) *KeyConfig {
 	}
 }
 
-// KeyConfig is a set of specific settings for a cached endpoint
+// KeyConfig holds the caching settings for one key. The zero value is not a useful
+// default: a TTL of 0 expires every entry immediately.
 type KeyConfig struct {
-	// TTL is time to live in seconds before the cache value can be deleted
-	// If TTL is 0, cache value will expire immediately
-	// If TTL is less than 0, cache value will "never" expire (not until year 9999)
+	// TTL is the lifetime of an entry in seconds.
+	// A TTL of 0 expires the entry immediately.
+	// A negative TTL never expires (not until year 9999).
 	// Some useful TTL values:
 	// - 3600: one hour
 	// - 86400: one day
@@ -82,20 +83,26 @@ type KeyConfig struct {
 	// - 2419200: four weeks
 	// - 31536000: one year
 	TTL int64
-	// When TTLJitter is > 0, a random value from 0 to TTLJitter-1 seconds is added
-	// to the timestamp of the entry. This spreads cache expire time to stop
-	// retrieval of fresh responses all at once. The jitter applied is capped at
-	// the TTL, see GetTTLJitter.
+	// TTLJitter adds up to TTLJitter-1 seconds of random delay to an entry's
+	// timestamp, so entries written together do not expire together. The delay is
+	// capped at the TTL; see GetTTLJitter.
 	TTLJitter int64
-	// Use expired entries when a fresh value cannot be successfully retrieved
+	// FallbackToExpired makes a failed retrieval return the expired entry instead
+	// of the error.
 	FallbackToExpired bool
-	// Settings for transformation of parameters
+	// ParamCodec serialises parameters into the entry's params. A nil value means
+	// DefaultParamCodec.
 	ParamCodec ParamCodec
-	// Settings for transformation of body
-	BodyCodec       BodyCodec
+	// BodyCodec encodes and decodes stored values. A nil value means
+	// DefaultBodyCodec.
+	BodyCodec BodyCodec
+	// BodyCompression compresses stored values. Changing it invalidates the key's
+	// existing entries. A nil value means DefaultBodyCompression.
 	BodyCompression Compression
 }
 
+// GetBodyCompression returns BodyCompression, or [DefaultBodyCompression] when
+// the field is nil.
 func (kc *KeyConfig) GetBodyCompression() Compression {
 	if kc.BodyCompression != nil {
 		return kc.BodyCompression
@@ -103,6 +110,7 @@ func (kc *KeyConfig) GetBodyCompression() Compression {
 	return DefaultBodyCompression
 }
 
+// GetBodyCodec returns BodyCodec, or [DefaultBodyCodec] when the field is nil.
 func (kc *KeyConfig) GetBodyCodec() BodyCodec {
 	if kc.BodyCodec != nil {
 		return kc.BodyCodec
@@ -110,6 +118,8 @@ func (kc *KeyConfig) GetBodyCodec() BodyCodec {
 	return DefaultBodyCodec
 }
 
+// GetParamCodec returns ParamCodec, or [DefaultParamCodec] when the field is
+// nil.
 func (kc *KeyConfig) GetParamCodec() ParamCodec {
 	if kc.ParamCodec != nil {
 		return kc.ParamCodec
@@ -126,8 +136,9 @@ type keyConfigRaw struct {
 	BodyCompression   string `json:"body_compression,omitempty"`
 }
 
-// GetExpireTime calculates an expire time with reasonable bounds for filesystems
-// any entry with a timestamp before the expire time is said to have expired
+// GetExpireTime returns the cutoff time before which an entry counts as expired.
+// The result is clamped to [MinDate] or [MaxDate] so that file system and database
+// timestamps stay in range.
 func (kc *KeyConfig) GetExpireTime(now time.Time) time.Time {
 	if kc.TTL == TTLEntryImmediatelyExpires {
 		// expireBeforeTime will always be after timestamp therefore everything expires immediately
@@ -172,7 +183,8 @@ func (kc *KeyConfig) GetTTLJitter() int64 {
 	return min(kc.TTLJitter, kc.TTL, int64(maxJitterSeconds))
 }
 
-// MarshalJSON helps to marshal the different codecs and compression
+// MarshalJSON writes the codecs and compression as their String names, which
+// UnmarshalJSON resolves back to the built-in implementations.
 func (kc *KeyConfig) MarshalJSON() ([]byte, error) {
 	var bodyCodec string
 	var bodyCompression string
@@ -200,7 +212,8 @@ func (kc *KeyConfig) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&aux)
 }
 
-// UnmarshalJSON helps to unmarshal the different codecs and compression
+// UnmarshalJSON resolves the codec and compression names written by MarshalJSON.
+// A name that is not built in leaves the field nil, so the default applies.
 func (kc *KeyConfig) UnmarshalJSON(data []byte) error {
 	var aux keyConfigRaw
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -221,6 +234,9 @@ func (kc *KeyConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// DecompressAndUnmarshal undoes [KeyConfig.MarshalAndCompress]: it decompresses
+// valueData with [KeyConfig.GetBodyCompression] and decodes it into value with
+// [KeyConfig.GetBodyCodec].
 func (kc *KeyConfig) DecompressAndUnmarshal(valueData []byte, value any) error {
 	valueData, err := kc.GetBodyCompression().Decompress(valueData)
 	if err != nil {
@@ -234,6 +250,8 @@ func (kc *KeyConfig) DecompressAndUnmarshal(valueData []byte, value any) error {
 	return nil
 }
 
+// MarshalAndCompress encodes value with [KeyConfig.GetBodyCodec] and compresses
+// it with [KeyConfig.GetBodyCompression], producing the bytes storage holds.
 func (kc *KeyConfig) MarshalAndCompress(value any) ([]byte, error) {
 	valueData, err := kc.GetBodyCodec().Marshal(value)
 	if err != nil {

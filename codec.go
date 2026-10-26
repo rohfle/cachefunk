@@ -6,14 +6,21 @@ import (
 	"slices"
 )
 
+// BodyCodec encodes and decodes cached values. A [KeyConfig] selects one by
+// String, which is also the name used in configuration JSON.
 type BodyCodec interface {
+	// Marshal encodes a value for storage.
 	Marshal(v any) ([]byte, error)
+	// Unmarshal decodes data into v, which must be a pointer.
 	Unmarshal(data []byte, v any) error
+	// String is the name used to select the codec in configuration.
 	String() string
 }
 
 type jsonCodec struct{}
 
+// JSONCodec stores values as JSON and works for any type encoding/json
+// supports. It is the default body codec.
 var JSONCodec = &jsonCodec{}
 
 func (c *jsonCodec) Marshal(v any) ([]byte, error) {
@@ -30,6 +37,8 @@ func (c *jsonCodec) String() string {
 
 type stringCodec struct{}
 
+// StringCodec stores a string or []byte as-is, adding no encoding. Marshal
+// rejects any other type, and Unmarshal needs a *string or *[]byte target.
 var StringCodec = &stringCodec{}
 
 func (c *stringCodec) Marshal(v any) ([]byte, error) {

@@ -12,28 +12,37 @@ import (
 	"time"
 )
 
-// DiskStorage stores cached items on disk in a tree of folders
+// DiskStorage stores cached items on disk in a tree of folders.
+//
+// A DiskStorage is safe for concurrent use by multiple goroutines. The zero value
+// is not usable: call [NewDiskStorage].
+//
+// A cache key must not be blank, begin with a dot or contain ".."; the methods
+// return an error for such a key.
 type DiskStorage struct {
-	BasePath      string
+	// BasePath is the root directory, with one folder per cache key beneath it.
+	BasePath string
+	// CalculatePath maps params to the path of the entry file, under the key's
+	// folder.
 	CalculatePath DiskStoragePather
 }
 
-// checkDirWritable checks if the directory at the given path is writable.
-// It returns an error if the directory is not writable, nil otherwise.
+// checkDirWritable returns an error when dirPath cannot be written to.
 func checkDirWritable(dirPath string) error {
-	// os.CreateTemp creates a temporary file in the specified directory.
-	// This is the most reliable way to test writability.
+	// Creating a temp file is the most reliable way to test writability.
 	tmpfile, err := os.CreateTemp(dirPath, "writable-test-")
 	if err != nil {
-		// If we can't create the file, the directory isn't writable.
 		return fmt.Errorf("%q is not writable: %w", dirPath, err)
 	}
-	// Close and remove the temporary file to clean up.
 	tmpfile.Close()
 	os.Remove(tmpfile.Name())
 	return nil
 }
 
+// NewDiskStorage returns a storage keeping entries under basePath, creating the
+// directory if needed. pather maps params to each entry's relative path and
+// defaults to DefaultDiskStoragePather when nil. It fails if basePath cannot be
+// created or written to.
 func NewDiskStorage(basePath string, pather DiskStoragePather) (*DiskStorage, error) {
 	if pather == nil {
 		pather = DefaultDiskStoragePather
@@ -44,13 +53,11 @@ func NewDiskStorage(basePath string, pather DiskStoragePather) (*DiskStorage, er
 		return nil, errors.New("base path of DiskStorage should not be empty")
 	}
 
-	// Make sure the base path directory exists
 	err := os.MkdirAll(basePath, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("when creating base path of DiskStorage %q: %w", basePath, err)
 	}
 
-	// Check basePath is writable
 	if err = checkDirWritable(basePath); err != nil {
 		return nil, fmt.Errorf("base path of DiskStorage %w", err)
 	}
@@ -88,12 +95,14 @@ func (c *DiskStorage) getCacheItemPath(cacheKey string, config *KeyConfig, param
 	return fullPath, nil
 }
 
+// Get reads the entry file, whose modification time is the timestamp. An expired
+// entry is read only when FallbackToExpired is set; it stays in place for
+// [DiskStorage.Cleanup] either way.
 func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBeforeTime time.Time) ([]byte, error) {
 	path, err := c.getCacheItemPath(key, config, params)
 	if err != nil {
 		return nil, fmt.Errorf("cache.Get: %w", err)
 	}
-	// Check if path exists
 	stat, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -104,7 +113,7 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBe
 
 	hasExpired := expireBeforeTime.After(stat.ModTime())
 	if hasExpired && !config.FallbackToExpired {
-		// No need to load expired data if not configued to fallback to expired
+		// No need to load expired data if not configured to fallback to expired
 		return nil, ErrEntryExpired
 	}
 
@@ -118,12 +127,15 @@ func (c *DiskStorage) Get(key string, config *KeyConfig, params string, expireBe
 
 	if hasExpired {
 		// Item has expired but DO NOT REMOVE THE ITEM.
-		// If FallbackToExpired is set, expired value will be used if retrieve function fails.
+		// If FallbackToExpired is set, expired value will be used if the resolver fails.
 		return value, ErrEntryExpired
 	}
 	return value, nil
 }
 
+// Set replaces the entry atomically: a concurrent reader sees the old value or
+// the new one, never a partial write. The timestamp becomes the file's
+// modification time.
 func (c *DiskStorage) Set(key string, config *KeyConfig, params string, value []byte, timestamp time.Time) error {
 	path, err := c.getCacheItemPath(key, config, params)
 	if err != nil {
@@ -188,7 +200,8 @@ func (c *DiskStorage) Keys() ([]string, error) {
 	return keys, nil
 }
 
-// Clear will delete all cache entries
+// Clear removes BasePath and recreates it, so anything else kept under the cache
+// directory is removed too.
 func (c *DiskStorage) Clear() error {
 	err := os.RemoveAll(c.BasePath)
 	if err != nil {
@@ -201,14 +214,15 @@ func (c *DiskStorage) Clear() error {
 	return nil
 }
 
-// Cleanup will delete all cache entries that have expired
+// Cleanup deletes the expired entry files under one key, then removes the
+// directories they left empty.
 func (c *DiskStorage) Cleanup(key string, config *KeyConfig, expireBeforeTime time.Time) error {
 	basePath, err := c.keyPath(key)
 	if err != nil {
 		return fmt.Errorf("Cleanup: %w", err)
 	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		return nil // key doesnt exist therefore nothing to do
+		return nil // key doesn't exist therefore nothing to do
 	}
 	// directories of entries that get removed, so they can be cleaned up
 	// after the walk (see pruneEmptyDirs)
@@ -252,6 +266,7 @@ func pruneEmptyDirs(dirs []string, stop string) {
 	}
 }
 
+// EntryCount returns the number of files beneath BasePath.
 func (c *DiskStorage) EntryCount() (int64, error) {
 	var count int64
 	c.iterateFiles(c.BasePath, func(parent string, file fs.DirEntry) {
@@ -260,6 +275,7 @@ func (c *DiskStorage) EntryCount() (int64, error) {
 	return count, nil
 }
 
+// ExpiredEntryCount returns the number of expired entry files under one key.
 func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBeforeTime time.Time) (int64, error) {
 	var count int64
 	basePath, err := c.keyPath(key)
@@ -267,7 +283,7 @@ func (c *DiskStorage) ExpiredEntryCount(key string, config *KeyConfig, expireBef
 		return 0, fmt.Errorf("ExpiredEntryCount: %w", err)
 	}
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		return 0, nil // key doesnt exist therefore count is 0
+		return 0, nil // key doesn't exist therefore count is 0
 	}
 	c.iterateFiles(basePath, func(parent string, file fs.DirEntry) {
 		path := filepath.Join(parent, file.Name())
